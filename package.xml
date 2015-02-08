@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package>
+  <name>srnp</name>
+  <version>0.1.0</version>
+  <description>Simple Robot Network Protocol Package</description>
+
+  <maintainer email="chitt@live.in">Chittaranjan Srinivas Swaminathan</maintainer>
+  <license>GPLv3</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <export>
+  </export>
+</package>
