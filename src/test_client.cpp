@@ -15,7 +15,7 @@ void TestClient::testServer(const std::string& host)
 
 	// Serialize the tuple first.
 	// So we set-up the header according to this.
-	srnp::Pair <std::string> my_pair ("key_chitt", "value_chitt");
+	srnp::StringPair my_pair ("key_chitt", "value_chitt", 195);
 	std::ostringstream data_archive_stream;
 	boost::archive::text_oarchive data_archive(data_archive_stream);
 	data_archive << my_pair;

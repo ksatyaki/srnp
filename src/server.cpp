@@ -83,7 +83,7 @@ void Session::handleReadData (const boost::system::error_code& e)
 	//printf("Data that was read is: %s.", read_data.c_str());
 	boost::archive::text_iarchive data_archive(data_stream);
 
-	Pair <std::string> tuple;
+	StringPair tuple;
 	data_archive >> tuple;
 
 	std::pair<std::string, std::string> tuple_pair = tuple.getPair();

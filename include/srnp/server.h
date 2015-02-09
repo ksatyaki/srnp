@@ -5,14 +5,17 @@
  *      Author: ace
  */
 
-#ifndef SERVER_H_
-#define SERVER_H_
+#ifndef SRNP_SERVER_H_
+#define SRNP_SERVER_H_
 
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/archive/text_iarchive.hpp>
+
+#include <string>
+#include <vector>
 
 #include <MessageHeader.h>
 #include <Pair.h>

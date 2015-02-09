@@ -20,3 +20,6 @@ target_link_libraries (simple srnp_server ${Boost_LIBRARIES})
 add_executable (test_client src/test_client.cpp)
 target_link_libraries (test_client ${Boost_LIBRARIES})
 
+add_executable (test_pair_space src/single_tests/test_pair_space.cpp)
+target_link_libraries (test_pair_space ${Boost_LIBRARIES})
+
