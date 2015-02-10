@@ -10,7 +10,7 @@
 namespace srnp
 {
 
-int MasterHub::buss;
+int MasterHub::buss = 0;
 boost::random::mt19937 MasterHub::gen;
 
 MasterHubSession::MasterHubSession (boost::asio::io_service& service) :
@@ -69,7 +69,7 @@ int MasterHub::makeNewOwnerId()
 	//boost::random::uniform_int_distribution<> dist(1, 1000);
 	//return dist(gen);
 
-	return MasterHub::buss++;
+	return (++MasterHub::buss);
 }
 
 void MasterHub::onHeartbeat()
@@ -93,6 +93,17 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 {
 	if(!e)
 	{
+		unsigned short port_of_server;
+
+		boost::system::error_code errore;
+		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_port()), errore);
+
+		std::istringstream port_stream(std::string(new_session->in_port().elems, new_session->in_port().size()));
+		port_stream >> std::hex >> port_of_server;
+
+		printf("\nPORT RECEIVED: %d", port_of_server);
+		// Get the port first.
+
 		// Send this guy his owner_id. And all components we have.
 		MasterMessage msg;
 
@@ -126,7 +137,7 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 			ComponentInfo info;
 			info.ip = (iter->second)->socket().remote_endpoint().address().to_string();
 			info.owner = (iter->first);
-			info.port = (iter->second)->socket().remote_endpoint().port();
+			info.port = port_of_server;
 
 			msg.all_components.push_back(info);
 		}

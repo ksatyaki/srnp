@@ -43,6 +43,8 @@ class MasterHubSession
 
 	boost::array <char, sizeof(size_t)> in_buffer_;
 
+	boost::array <char, sizeof(size_t)> in_port_;
+
 public:
 	void handleRead(MasterHub* master, const boost::system::error_code& e);
 
@@ -51,6 +53,8 @@ public:
 	~MasterHubSession ();
 
 	inline boost::array <char, sizeof(size_t)>& in_buffer() { return in_buffer_; }
+
+	inline boost::array <char, sizeof(size_t)>& in_port() { return in_port_; }
 
 	inline int getOwner() { return owner_; }
 

@@ -26,6 +26,17 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 		exit(0);
 	}
 
+	// SEND THE PORT WE ARE ON, FIRST. MOST IMPORTANT.
+	std::ostringstream port_stream;
+	port_stream << std::setw(sizeof(unsigned short)) << std::hex << server->getPort();
+	std::string out_port = port_stream.str();
+
+	boost::system::error_code error_co;
+	boost::asio::write (socket_, boost::asio::buffer(out_port), error_co);
+	printf("[MasterLink]: Writing port to master_hub... %s", error_co.message().c_str());
+
+	// READ STUFF.
+
 	boost::asio::read (socket_, boost::asio::buffer(in_size_));
 
 	size_t data_size;
@@ -34,8 +45,6 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 	size_stream >> std::hex >> data_size;
 
 	in_data_.resize(data_size);
-
-	boost::system::error_code error_co;
 	boost::asio::read(socket_, boost::asio::buffer(in_data_), error_co);
 
 	// If we reach here, we are sure that we got a MasterMessage.
