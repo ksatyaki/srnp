@@ -61,7 +61,11 @@ public:
 	inline boost::system::error_code sendSyncMsg(std::string data)
 	{
 		boost::system::error_code error;
+		try {
 		boost::asio::write(socket_, boost::asio::buffer(data), error);
+		} catch (std::exception& e) {
+			printf("\n[WRITE EXCEPTION]: Broken connection?");
+		}
 		return error;
 	}
 

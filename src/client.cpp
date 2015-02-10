@@ -70,6 +70,7 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 			}
 
 			printf("\n[CLIENT]: Master message received!");
+			printf("\n[CLIENT]: Owner ID is %d", mm.owner);
 
 		}
 		else if(header.type_ == MessageHeader::UC)

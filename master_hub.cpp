@@ -184,9 +184,6 @@ void MasterHub::sendUpdateComponentsMessageToAll(UpdateComponents msg)
 
 		boost::system::error_code error;
 
-		// Write the serialized data to the socket. We use "gather-write" to send
-		// both the header and the data in a single write operation.
-
 		error = (iter->second)->sendSyncMsg(out_size_);
 		printf("\nDone writing Size. Error: %s.", error.message().c_str());
 		error = (iter->second)->sendSyncMsg(out_msg_);

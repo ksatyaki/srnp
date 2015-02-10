@@ -52,12 +52,22 @@ void MasterLink::sendMMToOurClientAndWaitForUCMsg()
 	my_client_session_->sendMasterMsgToOurClient(mm_);
 
 	// Start listening for update components messages.
-	boost::asio::async_read(socket_, boost::asio::buffer(in_data_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
+	boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
 
 }
 
 void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 {
+	size_t data_size;
+
+	std::istringstream size_stream (std::string(in_size_.elems, in_size_.size()));
+	size_stream >> std::hex >> data_size;
+
+	in_data_.resize(data_size);
+	boost::system::error_code errore;
+	boost::asio::read(socket_, boost::asio::buffer(in_data_), errore);
+
+	printf("\n[Server]: Sync receive of UC message from MasterHub: %s", errore.message().c_str());
 	std::istringstream uc_stream(std::string(in_data_.data(), in_data_.size()));
 	boost::archive::text_iarchive header_archive(uc_stream);
 
@@ -65,7 +75,7 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 	header_archive >> uc;
 
 	my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
-	boost::asio::async_read(socket_, boost::asio::buffer(in_data_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
+	boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
 }
 
 
