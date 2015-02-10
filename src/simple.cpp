@@ -8,11 +8,6 @@
 
 int main(int argn, char* args[])
 {
-	if(argn < 5)
-	{
-		printf("Needs port, owner and friend's port as arguments.\n");
-		return 0;
-	}
 
 	boost::asio::io_service io_;
 	printf("\nstrats!\n");

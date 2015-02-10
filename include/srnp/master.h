@@ -105,7 +105,7 @@ public:
 
 	static int makeNewOwnerId();
 
-	Master(boost::asio::io_service& service, int port);
+	Master(boost::asio::io_service& service, unsigned short port);
 
 	virtual ~Master();
 };

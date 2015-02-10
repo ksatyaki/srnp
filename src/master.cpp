@@ -49,7 +49,7 @@ void MasterSession::handleRead(Master* master, const boost::system::error_code& 
 }
 
 
-Master::Master(boost::asio::io_service& service, int port) :
+Master::Master(boost::asio::io_service& service, unsigned short port) :
 		io_service_ (service),
 		acceptor_ (service, tcp::endpoint(tcp::v4(), port)),
 		heartbeat_timer_ (service, boost::posix_time::seconds(1))
@@ -234,7 +234,7 @@ Master::~Master()
 int main()
 {
 	boost::asio::io_service service;
-	int port = 80008;
+	unsigned short port = 33133;
 	srnp::Master (service, port);
 
 	service.run();

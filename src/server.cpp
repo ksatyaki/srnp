@@ -290,7 +290,7 @@ Server::Server (boost::asio::io_service& service, std::queue <Pair>& pair_queue)
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
 
-	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, "10.42.0.39", "80008", my_client_session_));
+	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, "10.42.0.39", "33133", my_client_session_));
 
 	// Template from boost tutorial/documentation.
 	// int const& (X::*get) () const = &X::get;
