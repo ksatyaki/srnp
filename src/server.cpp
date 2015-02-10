@@ -176,6 +176,7 @@ void Server::handleAcceptedConnection (ServerSession* new_session, const boost::
 {
 	if(!e)
 	{
+		printf("\n[SERVER]: We, %s, connect to %s, %d", new_session->socket().local_endpoint().address().to_string().c_str(), new_session->socket().remote_endpoint().address().to_string().c_str(), new_session->socket().remote_endpoint().port());
 		printf("\n[In Server::handleAcceptedConnection]: We got error: %s.\n", e.message().c_str());
 		new_session->startReading();
 		ServerSession::session_counter++;
@@ -196,9 +197,9 @@ void Server::onHeartbeat()
 	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
 	printf("\n*********************************************************");
-	printf("\nElapsed time: "); std::cout << elapsed_time_ << std::endl;
-	printf("\nAcceptor State: %s", acceptor_.is_open() ? "Open" : "Closed");
-	printf("\nNo. of Active Sessions: %d", ServerSession::session_counter);
+	printf("\n[SERVER] Elapsed time: "); std::cout << elapsed_time_ << std::endl;
+	printf("\n[SERVER] Acceptor State: %s", acceptor_.is_open() ? "Open" : "Closed");
+	printf("\n[SERVER] No. of Active Sessions: %d", ServerSession::session_counter);
 	printf("\n*********************************************************\n");
 }
 

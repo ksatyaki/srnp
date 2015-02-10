@@ -73,10 +73,11 @@ Client::Client(boost::asio::io_service& service, const int& owner_id, const std:
 		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
 		pair_queue_(pair_queue)
 {
-	my_server_session_ = boost::shared_ptr <ClientSession> (new ClientSession (service, "127.0.0.1", "33133"));
+	std::vector <std::pair <std::string, std::string> >::const_iterator iter = servers.begin();
+	my_server_session_ = boost::shared_ptr <ClientSession> (new ClientSession (service, iter->first, iter->second));
 
 	// We create one Session per server.
-	for(std::vector <std::pair <std::string, std::string> >::const_iterator iter = servers.begin(); iter != servers.end(); iter++)
+	for(std::vector <std::pair <std::string, std::string> >::const_iterator iter = servers.begin() + 1; iter != servers.end(); iter++)
 		client_sessions_.push_back(boost::shared_ptr <ClientSession> (new ClientSession(service, iter->first, iter->second) ));
 
 	heartbeat_timer_.async_wait (boost::bind(&Client::onHeartbeat, this));
@@ -123,7 +124,7 @@ void Client::onHeartbeat()
 	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
 	heartbeat_timer_.async_wait (boost::bind(&Client::onHeartbeat, this));
 	printf("\n*********************************************************");
-	printf("\nElapsed time: "); std::cout << elapsed_time_ << std::endl;
+	printf("\n[CLIENT] Elapsed time: "); std::cout << elapsed_time_ << std::endl;
 	printf("\n*********************************************************\n");
 }
 
