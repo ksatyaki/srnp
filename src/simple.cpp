@@ -20,15 +20,13 @@ int main(int argn, char* args[])
 	std::queue <srnp::Pair> q;
 	int owner = 332;
 
-	srnp::Server server (io_, atoi(args[1]), atoi(args[2]), q);
+	srnp::Server server (io_, q);
 
-	std::pair <std::string, std::string> host_pair ("127.0.0.1", args[2]);
-	std::pair <std::string, std::string> host_pair2 (args[3], args[4]);
-	std::vector < std::pair <std::string, std::string> > vec_host_pairs;
-	vec_host_pairs.push_back(host_pair);
-	vec_host_pairs.push_back(host_pair2);
+	unsigned short port = server.getPort();
 
-	srnp::Client cli (io_, owner, vec_host_pairs, q);
+	std::stringstream ss;
+	ss << port;
+	srnp::Client cli (io_, "127.0.0.1", ss.str(), q);
 
 	printf("\nGo!\n");
 

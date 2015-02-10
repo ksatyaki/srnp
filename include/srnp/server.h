@@ -13,11 +13,13 @@
 #include <boost/thread/thread.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 
 #include <string>
 #include <vector>
 #include <queue>
 
+#include <MasterMessages.h>
 #include <MessageHeader.h>
 #include <Pair.h>
 #include <PairSpace.h>
@@ -27,6 +29,24 @@ using boost::asio::ip::tcp;
 namespace srnp
 {
 
+class ServerSession;
+
+class MasterLink
+{
+	std::vector <char> in_data_;
+
+	tcp::socket socket_;
+
+	boost::shared_ptr <ServerSession>& my_client_session_;
+
+	tcp::resolver resolver_;
+
+	void handleUpdateComponentsMsg(const boost::system::error_code& e);
+
+public:
+	MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session);
+};
+
 class ServerSession
 {
 	PairSpace& pair_space_;
@@ -35,7 +55,9 @@ class ServerSession
 
 	tcp::socket socket_;
 
-	std::string out_data_;
+	std::string out_msg_;
+
+	std::string out_size_;
 
 	std::string out_header_;
 
@@ -62,6 +84,9 @@ public:
 
 	~ServerSession ();
 
+	boost::system::error_code sendMasterMsgToOurClient(MasterMessage msg);
+	boost::system::error_code sendUpdateComponentsMsgToOurClient(UpdateComponents msg);
+
 	inline tcp::socket& socket() { return socket_; }
 
 	void startReading();
@@ -73,6 +98,10 @@ class Server
 protected:
 
 	int owner_id_;
+
+	boost::shared_ptr <MasterLink> my_master_link_;
+
+	unsigned short port_;
 
 	std::queue <Pair>& pair_queue_;
 
@@ -86,6 +115,10 @@ protected:
 
 	boost::thread spin_thread_[4];
 
+	boost::shared_ptr <ServerSession> my_client_session_;
+
+	void handleAcceptedMyClientConnection(boost::shared_ptr<ServerSession>& client_session, const boost::system::error_code& e);
+
 	void handleAcceptedConnection(ServerSession* new_session, const boost::system::error_code& e);
 
 	void onHeartbeat();
@@ -96,9 +129,11 @@ protected:
 
 public:
 
+	inline unsigned short getPort() { return port_; };
+
 	inline void printPairSpace() { pair_space_.printPairSpace(); }
 
-	Server(boost::asio::io_service& service, const int& owner_id, const int& port, std::queue <Pair>& pair_queue);
+	Server(boost::asio::io_service& service, std::queue <Pair>& pair_queue);
 
 	void startSpinThreads();
 

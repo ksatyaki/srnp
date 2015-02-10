@@ -31,7 +31,7 @@ void TestClient::onConnection(const boost::system::error_code& err)
 		// END
 
 		// Setup the message header.
-		srnp::MessageHeader header (data_archive_stream.str().size(), srnp::PAIR);
+		srnp::MessageHeader header (data_archive_stream.str().size(), srnp::MessageHeader::PAIR);
 		// Serialize the data first so we know how large it is.
 		std::ostringstream header_archive_stream;
 		boost::archive::text_oarchive header_archive(header_archive_stream);

@@ -14,17 +14,25 @@
 namespace srnp
 {
 
-enum MessageType
-{
-	INVALID = 0,
-	REQUEST,
-	RESPONSE,
-	PAIR,
-	PAIR_NOCOPY
-};
-
 struct MessageHeader
 {
+	enum MessageType
+	{
+		INVALID = 0,
+		REQUEST,
+		RESPONSE,
+		PAIR,
+		PAIR_NOCOPY
+	};
+
+	enum MasterMessageType
+	{
+		// MasterMessage is sent.
+		MM = 0,
+		// UpdateComponents is sent.
+		UC
+	};
+
 	typedef boost::shared_ptr<MessageHeader> Ptr;
 
 	/**

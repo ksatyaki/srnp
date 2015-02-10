@@ -10,6 +10,53 @@
 namespace srnp
 {
 
+/** MASTERLINK CLASS **/
+MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session):
+		socket_ (service),
+		my_client_session_ (my_client_session),
+		resolver_ (service)
+{
+	tcp::resolver::query query(master_ip, master_port);
+	tcp::resolver::iterator endpoint_iterator_ = resolver_.resolve(query);
+
+	try {
+		boost::asio::connect(socket_, endpoint_iterator_);
+	} catch (std::exception& ex) {
+		printf("\nException when trying to connect to master: %s", ex.what());
+	}
+
+	boost::system::error_code error_co;
+	socket_.read_some(boost::asio::buffer(in_data_), error_co);
+
+	// If we reach here, we are sure that we got a MasterMessage.
+
+	std::istringstream mm_stream(std::string(in_data_.data(), in_data_.size()));
+	boost::archive::text_iarchive header_archive(mm_stream);
+
+	MasterMessage mm;
+	header_archive >> mm;
+
+	my_client_session_->sendMasterMsgToOurClient(mm);
+
+	// Start listening for update components messages.
+	boost::asio::async_read(socket_, boost::asio::buffer(in_data_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
+}
+
+void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
+{
+	std::istringstream uc_stream(std::string(in_data_.data(), in_data_.size()));
+	boost::archive::text_iarchive header_archive(uc_stream);
+
+	UpdateComponents uc;
+	header_archive >> uc;
+
+	my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
+	boost::asio::async_read(socket_, boost::asio::buffer(in_data_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
+}
+
+
+/** SERVERSESSION CLASS **/
+
 int ServerSession::session_counter = 0;
 
 ServerSession::ServerSession (boost::asio::io_service& service, PairSpace& pair_space, std::queue <Pair>& pair_queue) :
@@ -68,7 +115,7 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 		header_archive >> header;
 		//
 
-		if(header.type_ == PAIR_NOCOPY)
+		if(header.type_ == MessageHeader::PAIR_NOCOPY)
 		{
 			Pair tuple = pair_queue_.front();
 			pair_queue_.pop();
@@ -82,7 +129,7 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 			boost::asio::async_read(socket_, boost::asio::buffer(in_header_size_buffer_), boost::bind(&ServerSession::handleReadHeaderSize, this, boost::asio::placeholders::error) );
 		}
 		// PARSE ALL REQUESTS HERE!
-		else if(header.type_ == PAIR)
+		else if(header.type_ == MessageHeader::PAIR)
 		{
 			in_data_buffer_.resize (header.length_);
 			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadData, this, boost::asio::placeholders::error) );
@@ -138,24 +185,112 @@ void ServerSession::handleWrite (const boost::system::error_code& e)
 	}
 }
 
+boost::system::error_code ServerSession::sendMasterMsgToOurClient(MasterMessage msg)
+{
+	std::ostringstream msg_stream;
+	boost::archive::text_oarchive msg_archive(msg_stream);
+	msg_archive << msg;
+	out_msg_ = msg_stream.str();
+	// END
+
+	MessageHeader header;
+	header.length_ = out_msg_.size();
+	header.type_ = MessageHeader::MM;
+	std::ostringstream msg_header_stream;
+	boost::archive::text_oarchive msg_header_archive (msg_header_stream);
+	msg_header_archive << header;
+	out_header_ = msg_header_stream.str();
+
+	// Prepare header length
+	std::ostringstream size_stream;
+	size_stream << std::setw(sizeof(size_t)) << std::hex << out_header_.size();
+	if (!size_stream || size_stream.str().size() != sizeof(size_t))
+	{
+		// Something went wrong, inform the caller.
+		/*
+					boost::system::error_code error(boost::asio::error::invalid_argument);
+					socket_.io_service().post(boost::bind(handler, error));
+					return;
+
+		 */
+	}
+	out_size_ = size_stream.str();
+
+	boost::system::error_code error;
+	boost::asio::write(socket_, boost::asio::buffer(out_size_), error);
+	printf("\n[MM]: Sent. %s", error.message().c_str());
+
+	boost::asio::write(socket_, boost::asio::buffer(out_header_), error);
+	printf("\n[MM]: Sent. %s", error.message().c_str());
+
+	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
+	printf("\n[MM]: Sent. %s", error.message().c_str());
+}
+
+boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(UpdateComponents msg)
+{
+	std::ostringstream msg_stream;
+	boost::archive::text_oarchive msg_archive(msg_stream);
+	msg_archive << msg;
+	out_msg_ = msg_stream.str();
+	// END
+
+	MessageHeader header;
+	header.length_ = out_msg_.size();
+	header.type_ = MessageHeader::UC;
+	std::ostringstream msg_header_stream;
+	boost::archive::text_oarchive msg_header_archive (msg_header_stream);
+	msg_header_archive << header;
+	out_header_ = msg_header_stream.str();
+
+	// Prepare header length
+	std::ostringstream size_stream;
+	size_stream << std::setw(sizeof(size_t)) << std::hex << out_header_.size();
+	if (!size_stream || size_stream.str().size() != sizeof(size_t))
+	{
+		// Something went wrong, inform the caller.
+		/*
+						boost::system::error_code error(boost::asio::error::invalid_argument);
+						socket_.io_service().post(boost::bind(handler, error));
+						return;
+
+		 */
+	}
+	out_size_ = size_stream.str();
+
+	boost::system::error_code error;
+	boost::asio::write(socket_, boost::asio::buffer(out_size_), error);
+	printf("\n[MM]: Sent. %s", error.message().c_str());
+
+	boost::asio::write(socket_, boost::asio::buffer(out_header_), error);
+	printf("\n[MM]: Sent. %s", error.message().c_str());
+
+	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
+	printf("\n[MM]: Sent. %s", error.message().c_str());
+}
 
 
-Server::Server (boost::asio::io_service& service, const int& owner_id, const int& port, std::queue <Pair>& pair_queue) :
-		acceptor_ (service, tcp::endpoint(tcp::v4(), port)),
+
+Server::Server (boost::asio::io_service& service, std::queue <Pair>& pair_queue) :
+		acceptor_ (service, tcp::endpoint(tcp::v4(), 0)),
 		strand_ (service),
 		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
 		io_service_ (service),
-		owner_id_(owner_id),
+		owner_id_(-1),
 		pair_queue_ (pair_queue)
 {
-	ServerSession* new_session = new ServerSession(service, pair_space_, pair_queue_);
+	port_ = acceptor_.local_endpoint().port();
+	if(!my_client_session_)
+		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_queue_));
 
 	printf("\nHere we are folks. Alfonso's pancake breakfast!\n");
 	// Register a callback for accepting new connections.
-	acceptor_.async_accept (new_session->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session, boost::asio::placeholders::error));
+	acceptor_.async_accept (my_client_session_->socket(), boost::bind(&Server::handleAcceptedMyClientConnection, this, my_client_session_, boost::asio::placeholders::error));
 
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
+
+	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, "10.42.0.39", "80008", my_client_session_));
 
 	// Template from boost tutorial/documentation.
 	// int const& (X::*get) () const = &X::get;
@@ -170,6 +305,24 @@ void Server::startSpinThreads()
 	for(int i = 0; i < 4; i++)
 		spin_thread_[i] = boost::thread (boost::bind(&boost::asio::io_service::run, &io_service_));
 	printf("\n4 separate listening threads have started.");
+}
+
+void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>& client_session, const boost::system::error_code& e)
+{
+	if(!e)
+	{
+		printf("\n[SERVER]: We connected to our own client. We got: %s.\n", e.message().c_str());
+		client_session->startReading();
+		ServerSession::session_counter++;
+		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_);
+		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
+	}
+	else
+	{
+		ServerSession::session_counter--;
+		client_session.reset();
+		printf("\nWe couldn't connect to ourselves. Sucks!");
+	}
 }
 
 void Server::handleAcceptedConnection (ServerSession* new_session, const boost::system::error_code& e)
