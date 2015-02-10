@@ -13,11 +13,18 @@ void ClientSession::handleConnection(Client* client, const boost::system::error_
 {
 	if(!err)
 	{
-		printf("\nConnected to Our Own Server.");
 		reconnect_timer_.cancel();
 
 		if(is_this_our_server_session_)
+		{
+			printf("\nConnected to Our Own Server on: %d", this->socket_->remote_endpoint().port());
 			boost::asio::async_read(*socket_, boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCMsgs, this, client, boost::asio::placeholders::error));
+		}
+		else
+		{
+			printf("\nConnected to a Server on: %d", this->socket_->remote_endpoint().port());
+		}
+
 	}
 	else
 	{
@@ -32,6 +39,7 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 {
 	if(!error)
 	{
+		printf("\n[MM OR UC]: --- NO ERRORS]");
 		size_t header_size;
 		// Deserialize the length.
 		std::istringstream size_stream(std::string(in_size_.elems, sizeof(size_t)));
@@ -66,11 +74,10 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 			for(std::vector <ComponentInfo>::iterator iter = mm.all_components.begin(); iter != mm.all_components.end(); iter++)
 			{
 				printf("\n[CLIENT]: Adding these informations...");
-				printf("\n[CLIENT]: PORT: %d", iter->port);
+				printf("\n[CLIENT]: PORT: %s", iter->port.c_str());
 				printf("\n[CLIENT]: OWNER: %d", iter->owner);
 				printf("\n[CLIENT]: IP: %s", iter->ip.c_str());
-				std::stringstream s; s << iter->port;
-				client->sessions_map_[iter->owner] = new ClientSession(client->service_, iter->ip, s.str());
+				client->sessions_map_[iter->owner] = new ClientSession(client->service_, iter->ip, iter->port);
 			}
 
 			printf("\n[CLIENT]: Master message received!");
@@ -84,14 +91,13 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 
 			if(uc.operation == UpdateComponents::ADD)
 			{
-				std::stringstream s; s << uc.component.port;
-				printf("\nAdding session... (%s, %s, %d)!", uc.component.ip.c_str(), s.str().c_str(), uc.component.owner);
-				client->sessions_map_[uc.component.owner] = new ClientSession(client->service_, uc.component.ip, s.str());
+				printf("\nAdding session... (%s, %s, %d)!", uc.component.ip.c_str(), uc.component.port.c_str(), uc.component.owner);
+				client->sessions_map_[uc.component.owner] = new ClientSession(client->service_, uc.component.ip, uc.component.port);
 			}
 
 			else if(uc.operation == UpdateComponents::DELETE)
 			{
-				printf("\nDeleting session... (%s, %d, %d)!", uc.component.ip.c_str(), uc.component.port, uc.component.owner);
+				printf("\nDeleting session... (%s, %s, %d)!", uc.component.ip.c_str(), uc.component.port.c_str(), uc.component.owner);
 				ClientSession* session_to_delete = client->sessions_map_[uc.component.owner];
 				client->sessions_map_.erase(uc.component.owner);
 				delete session_to_delete;

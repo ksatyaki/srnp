@@ -28,14 +28,23 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 
 	printf("\nConnected to master!\n");
 
+	// Calc port:
+	std::stringstream sss;
+	sss << server->getPort();
+	printf("Port computed is: %s", sss.str().c_str());
+
+	std::string port_final = sss.str().c_str();
 	// SEND THE PORT WE ARE ON, FIRST. MOST IMPORTANT.
-	std::ostringstream port_stream;
-	port_stream << std::setw(sizeof(unsigned short)) << std::hex << server->getPort();
-	std::string out_port = port_stream.str();
+	std::ostringstream port_size_stream;
+	port_size_stream << std::setw(sizeof(size_t)) << std::hex << port_final.size();
+	std::string out_port_size = port_size_stream.str();
 
 	boost::system::error_code error_co;
-	boost::asio::write (socket_, boost::asio::buffer(out_port), error_co);
-	printf("[MasterLink]: Writing port to master_hub... %s", error_co.message().c_str());
+	boost::asio::write (socket_, boost::asio::buffer(out_port_size), error_co);
+	printf("\n[MasterLink]: Writing port size to master_hub... %s", error_co.message().c_str());
+
+	boost::asio::write (socket_, boost::asio::buffer(port_final), error_co);
+	printf("\n[MasterLink]: Writing port to master_hub... %s", error_co.message().c_str());
 
 	// READ STUFF.
 
@@ -54,7 +63,17 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 	std::istringstream mm_stream(std::string(in_data_.data(), in_data_.size()));
 	boost::archive::text_iarchive header_archive(mm_stream);
 
+	printf("\nREAD EVERTHING!");
+
 	header_archive >> mm_;
+
+	for(std::vector <ComponentInfo>::iterator iter = mm_.all_components.begin(); iter != mm_.all_components.end(); iter++)
+	{
+		printf("\n[SERVER]: Adding these information...");
+		printf("\n[SERVER]: PORT: %s", iter->port.c_str());
+		printf("\n[SERVER]: OWNER: %d", iter->owner);
+		printf("\n[SERVER]: IP: %s", iter->ip.c_str());
+	}
 
 	server->owner() = mm_.owner;
 }
@@ -62,6 +81,7 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 void MasterLink::sendMMToOurClientAndWaitForUCMsg()
 {
 
+	printf("\n!!!!!We are waiting!!!!!");
 	my_client_session_->sendMasterMsgToOurClient(mm_);
 
 	// Start listening for update components messages.
@@ -89,7 +109,7 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 
 	printf("\n[UpdateComponentsMsg]: IP: %s.", uc.component.ip.c_str());
 	printf("\n[UpdateComponentsMsg]: OWNER: %d.", uc.component.owner);
-	printf("\n[UpdateComponentsMsg]: PORT: %d.", uc.component.port);
+	printf("\n[UpdateComponentsMsg]: PORT: %s.", uc.component.port.c_str());
 
 	my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
 	boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));

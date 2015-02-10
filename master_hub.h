@@ -41,9 +41,11 @@ class MasterHubSession
 
 	std::string out_header_;
 
+	std::vector <char> in_data_;
+
 	boost::array <char, sizeof(size_t)> in_buffer_;
 
-	boost::array <char, sizeof(unsigned short)> in_port_;
+	boost::array <char, sizeof(size_t)> in_port_size_;
 
 public:
 	void handleRead(MasterHub* master, const boost::system::error_code& e);
@@ -52,9 +54,11 @@ public:
 
 	~MasterHubSession ();
 
+	inline std::vector <char>& in_data() { return in_data_; }
+
 	inline boost::array <char, sizeof(size_t)>& in_buffer() { return in_buffer_; }
 
-	inline boost::array <char, sizeof(unsigned short)>& in_port() { return in_port_; }
+	inline boost::array <char, sizeof(size_t)>& in_port_size() { return in_port_size_; }
 
 	inline int getOwner() { return owner_; }
 
@@ -79,6 +83,8 @@ public:
 class MasterHub
 {
 	std::map <int, MasterHubSession*> sessions_map_;
+
+	std::map <int, std::string> ports_map_;
 
 	boost::asio::io_service& io_service_;
 

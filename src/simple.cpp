@@ -15,7 +15,8 @@ int main(int argn, char* args[])
 		return 0;
 	}
 
-	boost::asio::io_service io_;
+	boost::asio::io_service io_server;
+	boost::asio::io_service io_client;
 	printf("\nstrats!\n");
 
 	std::queue <srnp::Pair> q;
@@ -23,23 +24,25 @@ int main(int argn, char* args[])
 
 	std::string master_hub_ip = args[1];
 	std::string master_hub_port = args[2];
-	srnp::Server server (io_, master_hub_ip, master_hub_port, q);
+	srnp::Server server (io_server, master_hub_ip, master_hub_port, q);
 
 	unsigned short port = server.getPort();
+
+	std::stringstream sport;
+	sport << port;
 
 	printf("\n********");
 	printf("\nINFO ALL");
 	printf("\n********");
 
-	printf("\nPORT: %d", server.getPort());
+	printf("\nPORT INT: %d", server.getPort());
+	printf("\nPORT STR: %s", sport.str().c_str());
 	printf("\nOWNER: %d", server.owner());
-
-	std::stringstream ss;
-	ss << port;
-	srnp::Client cli (io_, "127.0.0.1", ss.str(), q);
+	srnp::Client cli (io_client, "127.0.0.1", sport.str(), q);
 
 	printf("\nGo!\n");
 
+	/*
 	cli.setPair("simple", "test");
 	sleep(1);
 	server.printPairSpace();
@@ -51,9 +54,10 @@ int main(int argn, char* args[])
 	cli.setPair("simple.phooler", "test");
 	sleep(1);
 	server.printPairSpace();
+	*/
 
-	while(1)
-		sleep(1);
+	printf("\nAll over.");
+	io_client.run();
 
 	return 0;
 }

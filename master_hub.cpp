@@ -93,15 +93,22 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 {
 	if(!e)
 	{
-		unsigned short port_of_server;
 
 		boost::system::error_code errore;
-		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_port()), errore);
+		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_port_size()), errore);
 
-		std::istringstream port_stream(std::string(new_session->in_port().elems, new_session->in_port().size()));
-		port_stream >> std::hex >> port_of_server;
+		size_t size_of_port;
+		std::istringstream port_size_stream(std::string(new_session->in_port_size().elems, new_session->in_port_size().size()));
+		port_size_stream >> std::hex >> size_of_port;
 
-		printf("\nPORT RECEIVED: %d", port_of_server);
+		new_session->in_data().resize(size_of_port);
+		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_data()), errore);
+
+		std::istringstream port_value (std::string(new_session->in_data().data(), new_session->in_data().size()));
+		std::string port_of_server;
+		port_value >> port_of_server;
+
+		printf("\nPORT RECEIVED: %s", port_of_server.c_str());
 		// Get the port first.
 
 		// Send this guy his owner_id. And all components we have.
@@ -119,7 +126,7 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 			ComponentInfo info;
 			info.ip = (iter->second)->socket().remote_endpoint().address().to_string();
 			info.owner = (iter->first);
-			info.port = port_of_server;
+			info.port = ports_map_[info.owner];
 
 			msg.all_components.push_back(info);
 		}
@@ -131,13 +138,14 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 		UpdateComponents update_msg;
 		update_msg.component.ip = new_session->socket().remote_endpoint().address().to_string();
 		update_msg.component.owner = new_session->getOwner();
-		update_msg.component.port = new_session->socket().remote_endpoint().port();
+		update_msg.component.port = port_of_server;
 		update_msg.operation = UpdateComponents::ADD;
 
 		sendUpdateComponentsMessageToAll(update_msg);
 
 		// Finally add this guy to the HashMap.
 		sessions_map_[new_session->getOwner()] = new_session;
+		ports_map_[new_session->getOwner()] = port_of_server;
 
 		printf("\n[In MasterServer::handleAcceptedConnection]: We got error: %s.\n", e.message().c_str());
 
