@@ -142,7 +142,7 @@ public:
 
 	inline void printPairSpace() { pair_space_.printPairSpace(); }
 
-	Server(boost::asio::io_service& service, std::queue <Pair>& pair_queue);
+	Server(boost::asio::io_service& service, std::string master_ip, std::string master_port, std::queue <Pair>& pair_queue);
 
 	void startSpinThreads();
 

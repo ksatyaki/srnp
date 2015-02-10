@@ -9,13 +9,21 @@
 int main(int argn, char* args[])
 {
 
+	if(argn < 3)
+	{
+		printf("\nWrong.");
+		return 0;
+	}
+
 	boost::asio::io_service io_;
 	printf("\nstrats!\n");
 
 	std::queue <srnp::Pair> q;
 	int owner = 332;
 
-	srnp::Server server (io_, q);
+	std::string master_hub_ip = args[1];
+	std::string master_hub_port = args[2];
+	srnp::Server server (io_, master_hub_ip, master_hub_port, q);
 
 	unsigned short port = server.getPort();
 

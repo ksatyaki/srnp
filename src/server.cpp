@@ -285,7 +285,7 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 
 
 
-Server::Server (boost::asio::io_service& service, std::queue <Pair>& pair_queue) :
+Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std::string master_hub_port, std::queue <Pair>& pair_queue) :
 		acceptor_ (service, tcp::endpoint(tcp::v4(), 0)),
 		strand_ (service),
 		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
@@ -304,7 +304,7 @@ Server::Server (boost::asio::io_service& service, std::queue <Pair>& pair_queue)
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
 
-	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, "127.0.0.1", "11311", my_client_session_));
+	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_hub_ip, master_hub_port, my_client_session_));
 
 	// Template from boost tutorial/documentation.
 	// int const& (X::*get) () const = &X::get;
