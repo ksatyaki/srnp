@@ -26,7 +26,9 @@ struct ComponentInfo
 {
 	int owner;
 	std::string ip;
-	int port;
+	unsigned short port;
+
+	ComponentInfo () : owner (-1), port (-1) { }
 
 	template <typename OutputArchive>
 	void serialize (OutputArchive& o_archive, const int version)

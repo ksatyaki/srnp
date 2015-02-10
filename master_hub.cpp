@@ -38,8 +38,8 @@ void MasterHubSession::handleRead(MasterHub* master, const boost::system::error_
 		// Create a component info message and send to all with a delete message.
 		UpdateComponents update_msg;
 		update_msg.component.ip = socket_.remote_endpoint().address().to_string();
-		update_msg.component.owner = owner_;
-		update_msg.component.port = socket_.remote_endpoint().port();
+		//update_msg.component.owner = owner_;
+		//update_msg.component.port = socket_.remote_endpoint().port();
 		update_msg.operation = UpdateComponents::DELETE;
 
 		master->sendUpdateComponentsMessageToAll(update_msg);
