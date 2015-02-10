@@ -106,26 +106,8 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 
 		// Send this guy his owner_id. And all components we have.
 		MasterMessage msg;
+		msg.owner = makeNewOwnerId();
 
-		// Generate unique id for this guy.
-		bool unique = true;
-		while(!unique)
-		{
-			msg.owner = makeNewOwnerId();
-			bool broke = false;
-			for(std::map <int, MasterHubSession*>::iterator iter = sessions_map_.begin(); iter != sessions_map_.end(); iter++)
-			{
-				if(iter->first == msg.owner)
-				{
-					unique = false;
-					broke = true;
-					break;
-				}
-			}
-
-			if(!broke)
-				break;
-		}
 
 		printf("\nWe give owner ID: %d", msg.owner);
 

@@ -26,6 +26,8 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 		exit(0);
 	}
 
+	printf("\nConnected to master!\n");
+
 	// SEND THE PORT WE ARE ON, FIRST. MOST IMPORTANT.
 	std::ostringstream port_stream;
 	port_stream << std::setw(sizeof(unsigned short)) << std::hex << server->getPort();
