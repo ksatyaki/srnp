@@ -29,6 +29,7 @@ using boost::asio::ip::tcp;
 namespace srnp
 {
 
+class Server;
 class ServerSession;
 
 class MasterLink
@@ -53,7 +54,7 @@ class MasterLink
 public:
 	void sendMMToOurClientAndWaitForUCMsg();
 
-	MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session);
+	MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server);
 };
 
 class ServerSession
@@ -139,6 +140,8 @@ protected:
 public:
 
 	inline unsigned short getPort() { return port_; };
+
+	inline int& owner() { return owner_id_; }
 
 	inline void printPairSpace() { pair_space_.printPairSpace(); }
 

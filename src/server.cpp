@@ -11,7 +11,7 @@ namespace srnp
 {
 
 /** MASTERLINK CLASS **/
-MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session):
+MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server):
 		socket_ (service),
 		my_client_session_ (my_client_session),
 		resolver_ (service)
@@ -44,6 +44,8 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 	boost::archive::text_iarchive header_archive(mm_stream);
 
 	header_archive >> mm_;
+
+	server->owner() = mm_.owner;
 }
 
 void MasterLink::sendMMToOurClientAndWaitForUCMsg()
@@ -73,6 +75,10 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 
 	UpdateComponents uc;
 	header_archive >> uc;
+
+	printf("\n[UpdateComponentsMsg]: IP: %s.", uc.component.ip.c_str());
+	printf("\n[UpdateComponentsMsg]: OWNER: %d.", uc.component.owner);
+	printf("\n[UpdateComponentsMsg]: PORT: %d.", uc.component.port);
 
 	my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
 	boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
@@ -242,13 +248,13 @@ boost::system::error_code ServerSession::sendMasterMsgToOurClient(MasterMessage 
 
 	boost::system::error_code error;
 	boost::asio::write(socket_, boost::asio::buffer(out_size_), error);
-	printf("\n[MM]: Sent. %s", error.message().c_str());
+	printf("\n[MM SIZE]: Sent. %s", error.message().c_str());
 
 	boost::asio::write(socket_, boost::asio::buffer(out_header_), error);
-	printf("\n[MM]: Sent. %s", error.message().c_str());
+	printf("\n[MM HEADER]: Sent. %s", error.message().c_str());
 
 	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
-	printf("\n[MM]: Sent. %s", error.message().c_str());
+	printf("\n[MM MSG]: Sent. %s", error.message().c_str());
 }
 
 boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(UpdateComponents msg)
@@ -284,13 +290,13 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 
 	boost::system::error_code error;
 	boost::asio::write(socket_, boost::asio::buffer(out_size_), error);
-	printf("\n[MM]: Sent. %s", error.message().c_str());
+	printf("\n[UC SIZE]: Sent. %s", error.message().c_str());
 
 	boost::asio::write(socket_, boost::asio::buffer(out_header_), error);
-	printf("\n[MM]: Sent. %s", error.message().c_str());
+	printf("\n[UC HEADER]: Sent. %s", error.message().c_str());
 
 	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
-	printf("\n[MM]: Sent. %s", error.message().c_str());
+	printf("\n[UC MSG]: Sent. %s", error.message().c_str());
 }
 
 
@@ -314,7 +320,7 @@ Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
 
-	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_hub_ip, master_hub_port, my_client_session_));
+	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_hub_ip, master_hub_port, my_client_session_, this));
 
 	// Template from boost tutorial/documentation.
 	// int const& (X::*get) () const = &X::get;

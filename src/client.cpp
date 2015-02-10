@@ -51,7 +51,7 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 		in_data_.resize(header.length_);
 
 		boost::asio::read(*socket_, boost::asio::buffer(in_data_), sync_receive_error);
-		printf("\n[CLIENT]: Sync receive of Message header: %s", sync_receive_error.message().c_str());
+		printf("\n[CLIENT]: Sync receive of Message: %s", sync_receive_error.message().c_str());
 
 		std::istringstream data_in_stream (std::string(in_data_.data(), in_data_.size()));
 		boost::archive::text_iarchive data_archive (data_in_stream);

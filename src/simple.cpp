@@ -27,6 +27,13 @@ int main(int argn, char* args[])
 
 	unsigned short port = server.getPort();
 
+	printf("\n********");
+	printf("\nINFO ALL");
+	printf("\n********");
+
+	printf("\nPORT: %d", server.getPort());
+	printf("\nOWNER: %d", server.owner());
+
 	std::stringstream ss;
 	ss << port;
 	srnp::Client cli (io_, "127.0.0.1", ss.str(), q);

@@ -112,6 +112,8 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 				break;
 		}
 
+		printf("\nWe give owner ID: ", msg.owner);
+
 		new_session->setOwner (msg.owner);
 
 		// Collect component info to send to this new guy.
