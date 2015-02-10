@@ -1,33 +1,30 @@
 #include <PairSpace.h>
+#include <stdio.h>
 
 int main()
 {
 	srnp::PairSpace p;
-	srnp::PairBasePtr ptr1 = srnp::PairBasePtr (new srnp::StringPair ("key1", "value1", 123));
-	srnp::PairBasePtr ptr2 = srnp::PairBasePtr (new srnp::StringPair ("key2", "value2", 123));
-	srnp::PairBasePtr ptr3 = srnp::PairBasePtr (new srnp::StringPair ("key3", "value3", 123));
-	srnp::PairBasePtr ptr4 = srnp::PairBasePtr (new srnp::StringPair ("key1", "value432", 123));
+	srnp::PairPtr ptr1 = srnp::PairPtr (new srnp::Pair ("key1", "value1", 123));
+	srnp::PairPtr ptr2 = srnp::PairPtr (new srnp::Pair ("key2", "value2", 123));
+	srnp::PairPtr ptr3 = srnp::PairPtr (new srnp::Pair ("key3", "value3", 123));
+	srnp::PairPtr ptr4 = srnp::PairPtr (new srnp::Pair ("key1", "value432", 123));
 
-	srnp::PairBasePtr ptr5 = srnp::PairBasePtr (new srnp::Pair <int> ("key23", 12, 12));
 
-	p.addPair <std::string> (ptr1);
-	p.printPairSpace();
-	getchar();
-	p.addPair <std::string> (ptr2);
-	p.printPairSpace();
-	getchar();
-	p.addPair <std::string> (ptr3);
-	p.printPairSpace();
-	getchar();
-	p.addPair <std::string> (ptr4);
-	p.printPairSpace();
-	getchar();
 
-	p.removePair(p.getPairIteratorWithKey <std::string> ("key3"));
+	p.addPair(*ptr1);
+	p.printPairSpace();
+	getchar();
+	p.addPair(*ptr2);
+	p.printPairSpace();
+	getchar();
+	p.addPair(*ptr3);
+	p.printPairSpace();
+	getchar();
+	p.addPair(*ptr4);
 	p.printPairSpace();
 	getchar();
 
-	p.addPair <std::string> (ptr5);
+	p.removePair(p.getPairIteratorWithKey("key3"));
 	p.printPairSpace();
 	getchar();
 
@@ -35,7 +32,6 @@ int main()
 	ptr2.reset();
 	ptr3.reset();
 	ptr4.reset();
-	ptr5.reset();
 
 	p.printPairSpace();
 

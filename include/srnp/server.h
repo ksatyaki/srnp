@@ -16,17 +16,23 @@
 
 #include <string>
 #include <vector>
+#include <queue>
 
 #include <MessageHeader.h>
 #include <Pair.h>
+#include <PairSpace.h>
 
 using boost::asio::ip::tcp;
 
 namespace srnp
 {
 
-class Session
+class ServerSession
 {
+	PairSpace& pair_space_;
+
+	std::queue <Pair>& pair_queue_;
+
 	tcp::socket socket_;
 
 	std::string out_data_;
@@ -52,9 +58,9 @@ public:
 
 	static int session_counter;
 
-	Session (boost::asio::io_service& service);
+	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, std::queue <Pair>& pair_queue);
 
-	~Session ();
+	~ServerSession ();
 
 	inline tcp::socket& socket() { return socket_; }
 
@@ -66,6 +72,10 @@ class Server
 {
 protected:
 
+	int owner_id_;
+
+	std::queue <Pair>& pair_queue_;
+
 	boost::asio::io_service& io_service_;
 
 	boost::asio::deadline_timer heartbeat_timer_;
@@ -76,14 +86,19 @@ protected:
 
 	boost::thread spin_thread_[4];
 
-	void handleAcceptedConnection(Session* new_session, const boost::system::error_code& e);
+	void handleAcceptedConnection(ServerSession* new_session, const boost::system::error_code& e);
 
 	void onHeartbeat();
 
 	boost::posix_time::time_duration elapsed_time_;
 
+	PairSpace pair_space_;
+
 public:
-	Server(boost::asio::io_service& service, int port);
+
+	inline void printPairSpace() { pair_space_.printPairSpace(); }
+
+	Server(boost::asio::io_service& service, const int& owner_id, const int& port, std::queue <Pair>& pair_queue);
 
 	void startSpinThreads();
 

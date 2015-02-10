@@ -19,7 +19,8 @@ enum MessageType
 	INVALID = 0,
 	REQUEST,
 	RESPONSE,
-	PAIR
+	PAIR,
+	PAIR_NOCOPY
 };
 
 struct MessageHeader

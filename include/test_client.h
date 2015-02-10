@@ -27,12 +27,13 @@ class TestClient
 	/** 
 	  * This is the io_service object needed.
 	  */
-	boost::asio::io_service io_service_;
+	boost::asio::io_service& io_service_;
 
 	/**
 	  * A Resolver to resolve requests/queries from the client.
 	  */
 	tcp::resolver resolver_;
+
 	/**
 	  * A Socket.
 	  */
@@ -44,8 +45,12 @@ class TestClient
 
 	std::string out_data_;
 
+	tcp::resolver::iterator endpoint_iterator_;
+
 public:
-	TestClient();
+	TestClient(boost::asio::io_service& ioserv);
+
+	void onConnection(const boost::system::error_code& err);
 
 	/**
 	  * A client function. This requests the daytime.

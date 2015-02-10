@@ -8,7 +8,6 @@
 #ifndef PAIRSPACE_H_
 #define PAIRSPACE_H_
 
-#include <PairBase.h>
 #include <Pair.h>
 #include <boost/shared_ptr.hpp>
 
@@ -19,7 +18,7 @@ namespace srnp
 
 class PairSpace
 {
-	std::vector <PairBasePtr> pairs_;
+	std::vector <Pair> pairs_;
 
 public:
 	PairSpace() { };
@@ -27,7 +26,7 @@ public:
 	/**
 	 * Remove a pair from the space.
 	 */
-	inline void removePair(const std::vector <PairBasePtr>::iterator& iter)
+	inline void removePair(const std::vector <Pair>::iterator& iter)
 	{
 		if(iter != pairs_.end())
 			pairs_.erase(iter);
@@ -36,15 +35,12 @@ public:
 	/**
 	 * Get the pair as a boost::shared_ptr with the key.
 	 */
-	template <typename PairValueType>
-	std::vector <PairBasePtr>::iterator getPairIteratorWithKey(const std::string& key)
+	std::vector <Pair>::iterator getPairIteratorWithKey(const std::string& key)
 	{
-		typedef std::vector <boost::shared_ptr <PairBase> > PairSharedPtrVector;
-		for(PairSharedPtrVector::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
+		typedef std::vector <Pair> PairVector;
+		for(PairVector::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
 		{
-			boost::shared_ptr <Pair <PairValueType> > this_pair = boost::static_pointer_cast < Pair <PairValueType> >(*iter);
-
-			if(this_pair->getKey().compare(key) == 0)
+			if(iter->getKey().compare(key) == 0)
 			{
 				return iter;
 			}
@@ -56,11 +52,9 @@ public:
 	/**
 	 * Add a pair or update a pair in the pair-space.
 	 */
-	template <typename PairValueType>
-	void addPair(const boost::shared_ptr <PairBase>& pair)
+	void addPair(const Pair& pair)
 	{
-		boost::shared_ptr <Pair <PairValueType> > this_pair = boost::static_pointer_cast < Pair <PairValueType> >(pair);
-		std::vector<PairBasePtr>::iterator iter = getPairIteratorWithKey <PairValueType> (this_pair->getKey());
+		std::vector<Pair>::iterator iter = getPairIteratorWithKey (pair.getKey());
 		if(iter == pairs_.end())
 		{
 			//printf("Brand new pair added.\n");
@@ -70,6 +64,7 @@ public:
 		{
 			//printf("Something with that key is there already. Updated.\n");
 			pairs_.erase(iter);
+			// TODO Update the value and the stamp.
 			pairs_.push_back(pair);
 		}
 	}
@@ -79,15 +74,17 @@ public:
 	 */
 	void printPairSpace()
 	{
-		typedef std::vector <boost::shared_ptr <PairBase> > PairSharedPtrVector;
-		for(PairSharedPtrVector::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
+		std::cout<<"*********************";
+		std::cout <<"\nALL PAIRS\n";
+		std::cout<<"*********************\n";
+		typedef std::vector <Pair> PairVector;
+		for(PairVector::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
 		{
 			//boost::shared_ptr <Pair <PairValueType> > this_pair = boost::static_pointer_cast <PairValueType>(*iter);
 
-			(*iter)->printOnScreen();
-			std::cout<<std::endl<<"*********************"<<std::endl;
+			std::cout<<(*iter);
 		}
-
+		std::cout<<"*********************"<<std::endl;
 	}
 };
 

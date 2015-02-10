@@ -1,7 +1,6 @@
 #ifndef PAIR_H_
 #define PAIR_H_
 
-#include <PairBase.h>
 #include <string>
 #include <vector>
 #include <utility>
@@ -16,42 +15,63 @@ namespace srnp
 /**
  * A Class that derives from PairBase.
  */
-template <class T>
-class Pair : public PairBase
+class Pair
 {
-	typedef boost::shared_ptr <Pair <T> > Ptr;
 protected:
 	/**
 	 * The pair object.
 	 */
-	std::pair <std::string, T> pair_;
+	std::pair <std::string, std::string> pair_;
+
+	/**
+	 * The owner id for this pair.
+	 */
+	int owner_;
+
+	/**
+	 * A list of owner ids subscribed to this pair.
+	 */
+	std::vector <int> subscribers_;
+
 
 public:
-	Pair (const std::string& key, const T& value, const int& owner) :
-		pair_(std::pair <std::string, T> (key, value)),
-		PairBase (owner)
+	/**
+	 * Convenience typedef.
+	 */
+	typedef boost::shared_ptr <Pair> Ptr;
+
+
+
+	Pair (const std::string& key, const std::string& value, const int& owner) :
+		pair_(std::pair <std::string, std::string> (key, value)),
+		owner_ (owner)
 	{
 	}
 
-	Pair() : PairBase()
+	Pair(): owner_ (-1)
 	{
 
 	}
+
+	/**
+	 * Get the owner for the pair.
+	 */
+	inline int getOwner() const { return owner_; }
 
 	/**
 	 * Get the key.
 	 */
-	std::string getKey() const { return pair_.first; }
+	inline std::string getKey() const { return pair_.first; }
 
 	/**
 	 * Get the value.
 	 */
-	T getValue() const { return pair_.second; }
+	inline std::string getValue() const { return pair_.second; }
 
 	/**
 	 * Get a copy of the pair.
 	 */
-	std::pair <std::string, T> getPair () { return pair_; }
+	inline std::pair <std::string, std::string> getPair () const { return pair_; }
 
 	/**
 	 * The serialization function.
@@ -63,25 +83,18 @@ public:
 		o_archive & pair_;
 	}
 
-	void printOnScreen()
-	{
-		std::cout<<*this;
-	}
-
 };
+
+typedef boost::shared_ptr <Pair> PairPtr;
 
 /**
  * Provide support for cout.
  */
-template<typename ValueType>
-std::ostream& operator<<(std::ostream& s, const Pair<ValueType>& pair)
+std::ostream& operator<<(std::ostream& s, const Pair& pair)
 {
 	s<<"Key: "<<pair.getKey()<<". Value: "<<pair.getValue()<<std::endl;
 	return s;
 }
-
-// Some convenience typedefs.
-typedef Pair <std::string> StringPair;
 
 }
 #endif /* PAIR_H_ */
