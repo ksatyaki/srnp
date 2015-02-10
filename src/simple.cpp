@@ -8,7 +8,7 @@
 
 int main(int argn, char* args[])
 {
-	if(argn < 4)
+	if(argn < 5)
 	{
 		printf("Needs port, owner and friend's port as arguments.\n");
 		return 0;
@@ -23,7 +23,7 @@ int main(int argn, char* args[])
 	srnp::Server server (io_, atoi(args[1]), atoi(args[2]), q);
 
 	std::pair <std::string, std::string> host_pair ("127.0.0.1", args[2]);
-	std::pair <std::string, std::string> host_pair2 ("127.0.0.1", args[3]);
+	std::pair <std::string, std::string> host_pair2 (args[3], args[4]);
 	std::vector < std::pair <std::string, std::string> > vec_host_pairs;
 	vec_host_pairs.push_back(host_pair);
 	vec_host_pairs.push_back(host_pair2);
