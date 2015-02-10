@@ -99,6 +99,8 @@ public:
 
 	static boost::random::mt19937 gen;
 
+	static int buss;
+
 	static int makeNewOwnerId();
 
 	MasterHub(boost::asio::io_service& service, unsigned short port);

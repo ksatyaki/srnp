@@ -65,6 +65,10 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 			client->owner_id_ = mm.owner;
 			for(std::vector <ComponentInfo>::iterator iter = mm.all_components.begin(); iter != mm.all_components.end(); iter++)
 			{
+				printf("\n[CLIENT]: Adding these informations...");
+				printf("\n[CLIENT]: PORT: %d", iter->port);
+				printf("\n[CLIENT]: OWNER: %d", iter->owner);
+				printf("\n[CLIENT]: IP: %s", iter->ip.c_str());
 				std::stringstream s; s << iter->port;
 				client->sessions_map_[iter->owner] = new ClientSession(client->service_, iter->ip, s.str());
 			}

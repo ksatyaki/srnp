@@ -10,6 +10,7 @@
 namespace srnp
 {
 
+int MasterHub::buss;
 boost::random::mt19937 MasterHub::gen;
 
 MasterHubSession::MasterHubSession (boost::asio::io_service& service) :
@@ -64,8 +65,11 @@ MasterHub::MasterHub(boost::asio::io_service& service, unsigned short port) :
 
 int MasterHub::makeNewOwnerId()
 {
-	boost::random::uniform_int_distribution<> dist(1, 1000);
-	return dist(gen);
+	//
+	//boost::random::uniform_int_distribution<> dist(1, 1000);
+	//return dist(gen);
+
+	return MasterHub::buss++;
 }
 
 void MasterHub::onHeartbeat()
@@ -112,7 +116,7 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 				break;
 		}
 
-		printf("\nWe give owner ID: ", msg.owner);
+		printf("\nWe give owner ID: %d", msg.owner);
 
 		new_session->setOwner (msg.owner);
 
