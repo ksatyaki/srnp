@@ -23,23 +23,37 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 		boost::asio::connect(socket_, endpoint_iterator_);
 	} catch (std::exception& ex) {
 		printf("\nException when trying to connect to master: %s", ex.what());
+		exit(0);
 	}
 
+	boost::asio::read (socket_, boost::asio::buffer(in_size_));
+
+	size_t data_size;
+	// Deserialize the length.
+	std::istringstream size_stream(std::string(in_size_.elems, in_size_.size()));
+	size_stream >> std::hex >> data_size;
+
+	in_data_.resize(data_size);
+
 	boost::system::error_code error_co;
-	socket_.read_some(boost::asio::buffer(in_data_), error_co);
+	boost::asio::read(socket_, boost::asio::buffer(in_data_), error_co);
 
 	// If we reach here, we are sure that we got a MasterMessage.
 
 	std::istringstream mm_stream(std::string(in_data_.data(), in_data_.size()));
 	boost::archive::text_iarchive header_archive(mm_stream);
 
-	MasterMessage mm;
-	header_archive >> mm;
+	header_archive >> mm_;
+}
 
-	my_client_session_->sendMasterMsgToOurClient(mm);
+void MasterLink::sendMMToOurClientAndWaitForUCMsg()
+{
+
+	my_client_session_->sendMasterMsgToOurClient(mm_);
 
 	// Start listening for update components messages.
 	boost::asio::async_read(socket_, boost::asio::buffer(in_data_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
+
 }
 
 void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
@@ -290,7 +304,7 @@ Server::Server (boost::asio::io_service& service, std::queue <Pair>& pair_queue)
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
 
-	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, "10.42.0.39", "33133", my_client_session_));
+	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, "127.0.0.1", "11311", my_client_session_));
 
 	// Template from boost tutorial/documentation.
 	// int const& (X::*get) () const = &X::get;
@@ -312,6 +326,7 @@ void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>
 	if(!e)
 	{
 		printf("\n[SERVER]: We connected to our own client. We got: %s.\n", e.message().c_str());
+		my_master_link_->sendMMToOurClientAndWaitForUCMsg();
 		client_session->startReading();
 		ServerSession::session_counter++;
 		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_);

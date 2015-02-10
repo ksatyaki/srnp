@@ -125,11 +125,7 @@ protected:
 
 	boost::asio::io_service& service_;
 
-	boost::asio::deadline_timer heartbeat_timer_;
-
 	boost::posix_time::time_duration elapsed_time_;
-
-	void onHeartbeat();
 
 	std::queue <Pair>& pair_queue_;
 

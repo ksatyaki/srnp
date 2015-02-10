@@ -1,12 +1,12 @@
 /*
- * master.h
+ * master_hub.h
  *
- *  Created on: Feb 9, 2015
+ *  Created on: Feb 10, 2015
  *      Author: ace
  */
 
-#ifndef INCLUDE_SRNP_MASTER_H_
-#define INCLUDE_SRNP_MASTER_H_
+#ifndef MASTER_HUB_H_
+#define MASTER_HUB_H_
 
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
@@ -27,16 +27,9 @@ using boost::asio::ip::tcp;
 
 namespace srnp
 {
-
-/**
- * Forward declaration
- */
- class Master;
-
-class MasterSession
+class MasterHub;
+class MasterHubSession
 {
-	 friend class Master;
-
 	/**
 	 * This is the owner id of the component connected to this session.
 	 */
@@ -50,10 +43,18 @@ class MasterSession
 
 	boost::array <char, sizeof(size_t)> in_buffer_;
 
-	void handleRead(Master* master, const boost::system::error_code& e);
-
-
 public:
+	void handleRead(MasterHub* master, const boost::system::error_code& e);
+
+	MasterHubSession (boost::asio::io_service& service);
+
+	~MasterHubSession ();
+
+	inline boost::array <char, sizeof(size_t)>& in_buffer() { return in_buffer_; }
+
+	inline int getOwner() { return owner_; }
+
+	inline tcp::socket& socket() { return socket_; }
 
 	inline void setOwner (int own) { owner_ = own; }
 
@@ -64,21 +65,12 @@ public:
 		return error;
 	}
 
-	MasterSession (boost::asio::io_service& service);
-
-	~MasterSession ();
-
-	inline int getOwner() { return owner_; }
-
-	inline tcp::socket& socket() { return socket_; }
 
 };
 
-class Master
+class MasterHub
 {
-	friend class MasterSession;
-
-	std::map <int, MasterSession*> sessions_map_;
+	std::map <int, MasterHubSession*> sessions_map_;
 
 	boost::asio::io_service& io_service_;
 
@@ -86,30 +78,30 @@ class Master
 
 	tcp::acceptor acceptor_;
 
-	void handleAcceptedConnection(MasterSession* new_session, const boost::system::error_code& e);
+	boost::thread spin_thread_[2];
 
-	void sendUpdateComponentsMessageToAll(UpdateComponents msg);
-
-	void sendMasterMessageToComponent(MasterSession* new_session, MasterMessage msg);
+	void startSpinThreads();
 
 	void onHeartbeat();
 
-	boost::posix_time::time_duration elapsed_time_;
+	void handleAcceptedConnection(MasterHubSession* new_session, const boost::system::error_code& e);
 
 public:
+	void sendUpdateComponentsMessageToAll(UpdateComponents msg);
 
-	/**
-	 * A static pseudo-random number generator.
-	 */
+	void sendMasterMessageToComponent(MasterHubSession* new_session, MasterMessage msg);
+
+	inline std::map <int, MasterHubSession*>& sessions_map() { return sessions_map_;}
+
 	static boost::random::mt19937 gen;
 
 	static int makeNewOwnerId();
 
-	Master(boost::asio::io_service& service, unsigned short port);
+	MasterHub(boost::asio::io_service& service, unsigned short port);
 
-	virtual ~Master();
+	virtual ~MasterHub();
 };
 
 } /* namespace srnp */
 
-#endif /* INCLUDE_SRNP_MASTER_H_ */
+#endif /* MASTER_HUB_H_ */

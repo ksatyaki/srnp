@@ -33,6 +33,13 @@ class ServerSession;
 
 class MasterLink
 {
+	/**
+	 *  Save a copy of the initial master message.
+	 */
+	MasterMessage mm_;
+
+	boost::array <char, sizeof(size_t)> in_size_;
+
 	std::vector <char> in_data_;
 
 	tcp::socket socket_;
@@ -44,6 +51,8 @@ class MasterLink
 	void handleUpdateComponentsMsg(const boost::system::error_code& e);
 
 public:
+	void sendMMToOurClientAndWaitForUCMsg();
+
 	MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session);
 };
 

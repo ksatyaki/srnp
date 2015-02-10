@@ -41,7 +41,7 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 
 		boost::system::error_code sync_receive_error;
 		boost::asio::read(*socket_, boost::asio::buffer(in_header_), sync_receive_error);
-		printf("Sync receive of Message header: %s", sync_receive_error.message().c_str());
+		printf("\n[CLIENT]: Sync receive of Message header: %s", sync_receive_error.message().c_str());
 
 		std::istringstream header_in_stream (std::string(in_header_.data(), in_header_.size()));
 		boost::archive::text_iarchive header_archive(header_in_stream);
@@ -51,7 +51,7 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 		in_data_.resize(header.length_);
 
 		boost::asio::read(*socket_, boost::asio::buffer(in_data_), sync_receive_error);
-		printf("Sync receive of Message header: %s", sync_receive_error.message().c_str());
+		printf("\n[CLIENT]: Sync receive of Message header: %s", sync_receive_error.message().c_str());
 
 		std::istringstream data_in_stream (std::string(in_data_.data(), in_data_.size()));
 		boost::archive::text_iarchive data_archive (data_in_stream);
@@ -69,7 +69,7 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 				client->sessions_map_[iter->owner] = new ClientSession(client->service_, iter->ip, s.str());
 			}
 
-			printf("\nMaster message received!");
+			printf("\n[CLIENT]: Master message received!");
 
 		}
 		else if(header.type_ == MessageHeader::UC)
@@ -153,7 +153,6 @@ bool ClientSession::sendPair(const std::string& out_header_size, const std::stri
 Client::Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, std::queue <Pair>& pair_queue) :
 		service_ (service),
 		owner_id_ (-1),
-		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
 		pair_queue_(pair_queue)
 {
 	my_server_session_ = boost::shared_ptr <ClientSession> (new ClientSession (service, our_server_ip, our_server_port, true, this));
@@ -163,8 +162,6 @@ Client::Client(boost::asio::io_service& service, std::string our_server_ip, std:
 	for(std::vector <std::pair <std::string, std::string> >::const_iterator iter = servers.begin() + 1; iter != servers.end(); iter++)
 		client_sessions_.push_back(boost::shared_ptr <ClientSession> (new ClientSession(service, iter->first, iter->second) ));
 		**/
-
-	heartbeat_timer_.async_wait (boost::bind(&Client::onHeartbeat, this));
 }
 
 bool Client::setPair(const std::string& key, const std::string& value)
@@ -199,17 +196,6 @@ bool Client::setPair(const std::string& key, const std::string& value)
 
 	return my_server_session_->sendPair(out_header_size_, out_header_, out_data_);
 
-}
-
-void Client::onHeartbeat()
-{
-	// TODO: SEE IF EVERYTHING IS OK BEFORE DOING THIS!
-	elapsed_time_ += boost::posix_time::seconds(1);
-	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
-	heartbeat_timer_.async_wait (boost::bind(&Client::onHeartbeat, this));
-	printf("\n*********************************************************");
-	printf("\n[CLIENT] Elapsed time: "); std::cout << elapsed_time_ << std::endl;
-	printf("\n*********************************************************\n");
 }
 
 

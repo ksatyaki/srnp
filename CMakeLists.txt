@@ -17,9 +17,8 @@ target_link_libraries (srnp_server ${Boost_LIBRARIES})
 add_library (srnp_client SHARED src/client.cpp)
 target_link_libraries (srnp_client ${Boost_LIBRARIES})
 
-add_executable (srnp_master src/master.cpp)
-target_link_libraries (srnp_master ${Boost_LIBRARIES})
-
+add_executable (master_hub master_hub.cpp)
+target_link_libraries (master_hub ${Boost_LIBRARIES})
 
 
 add_executable (simple src/simple.cpp)
