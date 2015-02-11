@@ -9,7 +9,7 @@
 int main(int argn, char* args[])
 {
 
-	if(argn < 3)
+	if(argn < 4)
 	{
 		printf("\nWrong.");
 		return 0;
@@ -38,7 +38,7 @@ int main(int argn, char* args[])
 	printf("\nPORT INT: %d", server.getPort());
 	printf("\nPORT STR: %s", sport.str().c_str());
 	printf("\nOWNER: %d", server.owner());
-	srnp::Client cli (io_client, "10.42.0.1", sport.str(), q);
+	srnp::Client cli (io_client, args[3], sport.str(), q);
 
 	printf("\nGo!\n");
 
