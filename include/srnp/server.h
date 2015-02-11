@@ -41,6 +41,10 @@ class MasterLink
 
 	boost::array <char, sizeof(size_t)> in_size_;
 
+	std::string& master_ip_;
+
+	std::string& master_port_;
+
 	std::vector <char> in_data_;
 
 	tcp::socket socket_;

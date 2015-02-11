@@ -14,7 +14,9 @@ namespace srnp
 MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server):
 		socket_ (service),
 		my_client_session_ (my_client_session),
-		resolver_ (service)
+		resolver_ (service),
+		master_ip_(master_ip),
+		master_port_(master_port)
 {
 	tcp::resolver::query query(master_ip, master_port);
 	tcp::resolver::iterator endpoint_iterator_ = resolver_.resolve(query);
@@ -76,8 +78,8 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 
 		if(iter->ip.compare("127.0.0.1") == 0)
 		{
-			iter->port = master_ip;
-			printf("\nI changed port to this: %s", iter->port.c_str());
+			iter->ip = master_ip;
+			printf("\nI changed ip to this: %s", iter->ip.c_str());
 		}
 	}
 
@@ -116,6 +118,12 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 	printf("\n[UpdateComponentsMsg]: IP: %s.", uc.component.ip.c_str());
 	printf("\n[UpdateComponentsMsg]: OWNER: %d.", uc.component.owner);
 	printf("\n[UpdateComponentsMsg]: PORT: %s.", uc.component.port.c_str());
+
+	if(uc.component.ip.compare("127.0.0.1") == 0)
+	{
+		uc.component.ip = master_ip_;
+		printf("\nI changed ip to this: %s", uc.component.ip.c_str());
+	}
 
 	my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
 	boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
