@@ -338,7 +338,9 @@ Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std
 		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
 		io_service_ (service),
 		owner_id_(-1),
-		pair_queue_ (pair_queue)
+		pair_queue_ (pair_queue),
+		master_ip_ (master_hub_ip),
+		master_port_ (master_hub_port)
 {
 	port_ = acceptor_.local_endpoint().port();
 	if(!my_client_session_)
@@ -350,8 +352,6 @@ Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std
 
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
-
-	my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_hub_ip, master_hub_port, my_client_session_, this));
 
 	// Template from boost tutorial/documentation.
 	// int const& (X::*get) () const = &X::get;
@@ -372,7 +372,8 @@ void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>
 {
 	if(!e)
 	{
-		printf("\n[SERVER]: We connected to our own client. We got: %s.\n", e.message().c_str());
+		printf("\n[SERVER]: We connected to our own client. On %d.\n", client_session->socket().remote_endpoint().port());
+		my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_ip_, master_port_, my_client_session_, this));
 		my_master_link_->sendMMToOurClientAndWaitForUCMsg();
 		client_session->startReading();
 		ServerSession::session_counter++;
@@ -392,7 +393,6 @@ void Server::handleAcceptedConnection (ServerSession* new_session, const boost::
 	if(!e)
 	{
 		printf("\n[SERVER]: We, %s, connect to %s, %d", new_session->socket().local_endpoint().address().to_string().c_str(), new_session->socket().remote_endpoint().address().to_string().c_str(), new_session->socket().remote_endpoint().port());
-		printf("\n[In Server::handleAcceptedConnection]: We got error: %s.\n", e.message().c_str());
 		new_session->startReading();
 		ServerSession::session_counter++;
 		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_);

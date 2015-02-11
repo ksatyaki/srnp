@@ -18,6 +18,8 @@ void ClientSession::handleConnection(Client* client, const boost::system::error_
 		if(is_this_our_server_session_)
 		{
 			printf("\nConnected to Our Own Server on: %d", this->socket_->remote_endpoint().port());
+			printf("\nWe are on: %d", this->socket_->local_endpoint().port());
+			//socket_->async_receive(boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCMsgs, this, client, boost::asio::placeholders::error));
 			boost::asio::async_read(*socket_, boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCMsgs, this, client, boost::asio::placeholders::error));
 		}
 		else
@@ -37,6 +39,8 @@ void ClientSession::handleConnection(Client* client, const boost::system::error_
 
 void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error_code& error)
 {
+	printf("\n Over Here... \n");
+	std::cout<<std::endl;
 	if(!error)
 	{
 		printf("\n[MM OR UC]: --- NO ERRORS]");

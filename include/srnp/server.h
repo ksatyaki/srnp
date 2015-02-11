@@ -107,6 +107,8 @@ class Server
 {
 protected:
 
+	std::string master_ip_, master_port_;
+
 	int owner_id_;
 
 	boost::shared_ptr <MasterLink> my_master_link_;
@@ -125,7 +127,7 @@ protected:
 
 	boost::thread spin_thread_[4];
 
-	boost::shared_ptr <ServerSession> my_client_session_;
+	boost::shared_ptr<ServerSession> my_client_session_;
 
 	void handleAcceptedMyClientConnection(boost::shared_ptr<ServerSession>& client_session, const boost::system::error_code& e);
 
