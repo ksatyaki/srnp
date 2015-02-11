@@ -73,6 +73,12 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 		printf("\n[SERVER]: PORT: %s", iter->port.c_str());
 		printf("\n[SERVER]: OWNER: %d", iter->owner);
 		printf("\n[SERVER]: IP: %s", iter->ip.c_str());
+
+		if(iter->ip.compare("127.0.0.1") == 0)
+		{
+			iter->port = master_ip;
+			printf("\nI changed port to this: %s", iter->port.c_str());
+		}
 	}
 
 	server->owner() = mm_.owner;

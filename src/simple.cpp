@@ -24,7 +24,7 @@ int main(int argn, char* args[])
 
 	std::string master_hub_ip = args[1];
 	std::string master_hub_port = args[2];
-	srnp::Server server (io_server, args[3], master_hub_ip, master_hub_port, q);
+	srnp::Server server (io_server, "0.0.0.0", master_hub_ip, master_hub_port, q);
 
 	unsigned short port = server.getPort();
 
