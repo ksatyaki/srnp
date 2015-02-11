@@ -332,8 +332,8 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 
 
 
-Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std::string master_hub_port, std::queue <Pair>& pair_queue) :
-		acceptor_ (service, tcp::endpoint(tcp::v4(), 0)),
+Server::Server (boost::asio::io_service& service, std::string server_ip, std::string master_hub_ip, std::string master_hub_port, std::queue <Pair>& pair_queue) :
+		acceptor_ (service, tcp::endpoint(boost::asio::ip::address::from_string(server_ip), 0)),
 		strand_ (service),
 		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
 		io_service_ (service),
