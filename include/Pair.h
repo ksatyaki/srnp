@@ -9,6 +9,10 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/string.hpp>
 
+#include <boost/function.hpp>
+#include <boost/date_time.hpp>
+#include <boost/date_time/posix_time/time_serialize.hpp>
+
 namespace srnp
 {
 
@@ -33,6 +37,21 @@ protected:
 	 */
 	std::vector <int> subscribers_;
 
+	/**
+	 * A callback.
+	 * There can be only one.
+	 */
+	boost::function <Pair()> callback_;
+
+	/**
+	 * Write time of this Pair.
+	 */
+	boost::posix_time::ptime write_time_;
+
+	/**
+	 * Expiry time.
+	 */
+	boost::posix_time::ptime expiry_time_;
 
 public:
 	/**
@@ -81,6 +100,8 @@ public:
 	{
 		o_archive & owner_;
 		o_archive & pair_;
+		o_archive & write_time_;
+		o_archive & expiry_time_;
 	}
 
 };
@@ -92,7 +113,7 @@ typedef boost::shared_ptr <Pair> PairPtr;
  */
 std::ostream& operator<<(std::ostream& s, const Pair& pair)
 {
-	s<<"Key: "<<pair.getKey()<<". Value: "<<pair.getValue()<<std::endl;
+	s<<"Key: "<<pair.getKey()<<". Value: "<<pair.getValue()<<". Owner: "<<pair.getOwner()<<std::endl;
 	return s;
 }
 

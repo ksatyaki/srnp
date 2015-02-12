@@ -3,11 +3,13 @@
 
 #include <srnp/client.h>
 #include <srnp/server.h>
+#include <srnp/srnp_print.h>
 
 #include <Pair.h>
 
 int main(int argn, char* args[])
 {
+	srnp::srnp_print_setup(boost::log::trivial::debug);
 
 	if(argn < 4)
 	{

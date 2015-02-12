@@ -43,9 +43,9 @@ struct UpdateComponents
 {
 	enum Operation
 	{
-		ADD = 0,
-		DELETE,
-		MODIFY
+		ADD = 100,
+		DELETE = 101,
+		MODIFY = 102
 	};
 
 	/**

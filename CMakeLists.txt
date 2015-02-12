@@ -2,11 +2,15 @@ cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 
 project (srnp)
 
+ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
 find_package (Boost REQUIRED 
     COMPONENTS
     thread
     system
     serialization
+    date_time
+    log
+    log_setup
 )
 
 include_directories (include ${Boost_INCLUDE_DIRS})

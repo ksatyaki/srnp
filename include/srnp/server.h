@@ -8,6 +8,8 @@
 #ifndef SRNP_SERVER_H_
 #define SRNP_SERVER_H_
 
+#include <srnp/srnp_print.h>
+
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/thread/thread.hpp>

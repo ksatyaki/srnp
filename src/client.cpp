@@ -17,20 +17,19 @@ void ClientSession::handleConnection(Client* client, const boost::system::error_
 
 		if(is_this_our_server_session_)
 		{
-			printf("\nConnected to Our Own Server on: %d", this->socket_->remote_endpoint().port());
-			printf("\nWe are on: %d", this->socket_->local_endpoint().port());
-			//socket_->async_receive(boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCMsgs, this, client, boost::asio::placeholders::error));
+			SRNP_PRINT_DEBUG << "Connected to Our Own Server on: " << this->socket_->remote_endpoint().port();
+			SRNP_PRINT_TRACE << "We are on: " << this->socket_->local_endpoint().port();
 			boost::asio::async_read(*socket_, boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCMsgs, this, client, boost::asio::placeholders::error));
 		}
 		else
 		{
-			printf("\nConnected to a Server on: %d", this->socket_->remote_endpoint().port());
+			SRNP_PRINT_DEBUG << "Connected to a Server on: " << this->socket_->remote_endpoint().port();
 		}
 
 	}
 	else
 	{
-		printf("\nNot connected to host. Will try again in 10 seconds.");
+		SRNP_PRINT_DEBUG << "Not connected to host. Will try again in 10 seconds.";
 		reconnect_timer_.expires_from_now(boost::posix_time::seconds(RECONNECT_TIMEOUT));
 		reconnect_timer_.async_wait(boost::bind(&ClientSession::reconnectTimerCallback, this, client));
 	}
@@ -39,11 +38,9 @@ void ClientSession::handleConnection(Client* client, const boost::system::error_
 
 void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error_code& error)
 {
-	printf("\n Over Here... \n");
 	std::cout<<std::endl;
 	if(!error)
 	{
-		printf("\n[MM OR UC]: --- NO ERRORS]");
 		size_t header_size;
 		// Deserialize the length.
 		std::istringstream size_stream(std::string(in_size_.elems, sizeof(size_t)));
@@ -53,7 +50,7 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 
 		boost::system::error_code sync_receive_error;
 		boost::asio::read(*socket_, boost::asio::buffer(in_header_), sync_receive_error);
-		printf("\n[CLIENT]: Sync receive of Message header: %s", sync_receive_error.message().c_str());
+		SRNP_PRINT_DEBUG << "[CLIENT]: Sync receive of Message header: " << sync_receive_error.message();
 
 		std::istringstream header_in_stream (std::string(in_header_.data(), in_header_.size()));
 		boost::archive::text_iarchive header_archive(header_in_stream);
@@ -63,7 +60,7 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 		in_data_.resize(header.length_);
 
 		boost::asio::read(*socket_, boost::asio::buffer(in_data_), sync_receive_error);
-		printf("\n[CLIENT]: Sync receive of Message: %s", sync_receive_error.message().c_str());
+		SRNP_PRINT_DEBUG << "[CLIENT]: Sync receive of Message: " << sync_receive_error.message();
 
 		std::istringstream data_in_stream (std::string(in_data_.data(), in_data_.size()));
 		boost::archive::text_iarchive data_archive (data_in_stream);
@@ -73,19 +70,18 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 			MasterMessage mm;
 			data_archive >> mm;
 
-			// I get my owner id from here!
 			client->owner_id_ = mm.owner;
 			for(std::vector <ComponentInfo>::iterator iter = mm.all_components.begin(); iter != mm.all_components.end(); iter++)
 			{
-				printf("\n[CLIENT]: Adding these informations...");
-				printf("\n[CLIENT]: PORT: %s", iter->port.c_str());
-				printf("\n[CLIENT]: OWNER: %d", iter->owner);
-				printf("\n[CLIENT]: IP: %s", iter->ip.c_str());
+				SRNP_PRINT_DEBUG << "[CLIENT]: Adding these informations...";
+				SRNP_PRINT_DEBUG << "[CLIENT]: PORT: " << iter->port;
+				SRNP_PRINT_DEBUG << "[CLIENT]: OWNER: " << iter->owner;
+				SRNP_PRINT_DEBUG << "[CLIENT]: IP: %s" << iter->ip;
 				client->sessions_map_[iter->owner] = new ClientSession(client->service_, iter->ip, iter->port);
 			}
 
-			printf("\n[CLIENT]: Master message received!");
-			printf("\n[CLIENT]: Owner ID is %d", mm.owner);
+			SRNP_PRINT_DEBUG << "[CLIENT]: Master message received!";
+			SRNP_PRINT_INFO << "[CLIENT]: Owner ID: " << mm.owner;
 
 		}
 		else if(header.type_ == MessageHeader::UC)
@@ -95,13 +91,13 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 
 			if(uc.operation == UpdateComponents::ADD)
 			{
-				printf("\nAdding session... (%s, %s, %d)!", uc.component.ip.c_str(), uc.component.port.c_str(), uc.component.owner);
+				SRNP_PRINT_DEBUG << "Adding session... ( " << uc.component.ip << uc.component.port << uc.component.owner << " )";
 				client->sessions_map_[uc.component.owner] = new ClientSession(client->service_, uc.component.ip, uc.component.port);
 			}
 
 			else if(uc.operation == UpdateComponents::DELETE)
 			{
-				printf("\nDeleting session... (%s, %s, %d)!", uc.component.ip.c_str(), uc.component.port.c_str(), uc.component.owner);
+				SRNP_PRINT_DEBUG << "Deleting session... (" << uc.component.ip << uc.component.port << uc.component.owner << " )";
 				ClientSession* session_to_delete = client->sessions_map_[uc.component.owner];
 				client->sessions_map_.erase(uc.component.owner);
 				delete session_to_delete;
@@ -109,21 +105,21 @@ void ClientSession::handleMMandUCMsgs(Client* client, const boost::system::error
 		}
 		else
 		{
-			printf("\nWe received a message that was neither UC nor MM. Weird!");
+			SRNP_PRINT_FATAL << "We received a message that was neither UC nor MM. Weird!";
 		}
 
 		boost::asio::async_read(*socket_, boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCMsgs, this, client, boost::asio::placeholders::error));
 	}
 	else
 	{
-		printf("\nLost connection with our own server. Don't know what to do! %s", error.message().c_str());
+		SRNP_PRINT_FATAL << "Lost connection with our own server. Don't know what to do! Error: " << error.message();
 	}
 
 }
 
 void ClientSession::reconnectTimerCallback(Client* client)
 {
-	printf("\nReconnecting to host...");
+	SRNP_PRINT_DEBUG << "Reconnecting to host...";
 	boost::asio::async_connect(*socket_, endpoint_iterator_, boost::bind(&ClientSession::handleConnection, this, client, boost::asio::placeholders::error));
 }
 
@@ -145,15 +141,15 @@ bool ClientSession::sendPair(const std::string& out_header_size, const std::stri
 	boost::system::error_code error;
 
 	socket_->write_some(boost::asio::buffer(out_header_size), error);
-	printf("\nDone writing header size. Error: %s.", error.message().c_str());
+	SRNP_PRINT_DEBUG << "[sendPair]: Done writing header size. Error: " << error.message();
 
 	socket_->write_some(boost::asio::buffer(out_header), error);
-	printf("\nDone writing header. Error: %s.", error.message().c_str());
+	SRNP_PRINT_DEBUG << "[sendPair]: Done writing header. Error: " << error.message();
 
 	if(out_data.size() != 0)
 	{
 		socket_->write_some(boost::asio::buffer(out_data), error);
-		printf("\nDone writing data. Error: %s.", error.message().c_str());
+		SRNP_PRINT_DEBUG << "[sendPair]: Done writing data. Error: " << error.message();
 	}
 
 	if(!error)
@@ -184,7 +180,6 @@ bool Client::setPair(const std::string& key, const std::string& value)
 	// Serialize the tuple first.
 	// So we set-up the header according to this.
 	srnp::Pair my_pair (key, value, owner_id_);
-	// TODO fix owner id.
 
 	std::string out_data_ = "";
 	// END

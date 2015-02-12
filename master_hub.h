@@ -8,6 +8,8 @@
 #ifndef MASTER_HUB_H_
 #define MASTER_HUB_H_
 
+#include <srnp/srnp_print.h>
+
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/thread/thread.hpp>
@@ -66,15 +68,15 @@ public:
 
 	inline void setOwner (int own) { owner_ = own; }
 
-	inline boost::system::error_code sendSyncMsg(std::string data)
+	void handleAsyncWriteMsg(const boost::system::error_code& ec);
+
+	inline void sendAsyncMsg(std::string data)
 	{
-		boost::system::error_code error;
 		try {
-		boost::asio::write(socket_, boost::asio::buffer(data), error);
-		} catch (std::exception& e) {
-			printf("\n[WRITE EXCEPTION]: Broken connection?");
+		boost::asio::async_write(socket_, boost::asio::buffer(data), boost::bind(&MasterHubSession::handleAsyncWriteMsg, this, boost::asio::placeholders::error));
+		} catch (std::exception& ex) {
+			SRNP_PRINT_FATAL << "We got exception: " << ex.what();
 		}
-		return error;
 	}
 
 
@@ -82,6 +84,8 @@ public:
 
 class MasterHub
 {
+	boost::asio::strand strand_;
+
 	std::map <int, MasterHubSession*> sessions_map_;
 
 	std::map <int, std::string> ports_map_;
@@ -101,6 +105,8 @@ class MasterHub
 	void handleAcceptedConnection(MasterHubSession* new_session, const boost::system::error_code& e);
 
 public:
+	inline boost::asio::strand& strand() { return strand_; }
+
 	void sendUpdateComponentsMessageToAll(UpdateComponents msg);
 
 	void sendMasterMessageToComponent(MasterHubSession* new_session, MasterMessage msg);
@@ -111,7 +117,7 @@ public:
 
 	static int buss;
 
-	static int makeNewOwnerId();
+	static int makeNewOwnerId(std::string port_no);
 
 	MasterHub(boost::asio::io_service& service, unsigned short port);
 

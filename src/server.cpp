@@ -24,16 +24,16 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 	try {
 		boost::asio::connect(socket_, endpoint_iterator_);
 	} catch (std::exception& ex) {
-		printf("\nException when trying to connect to master: %s", ex.what());
+		SRNP_PRINT_FATAL << "Exception when trying to connect to master: " << ex.what();
 		exit(0);
 	}
 
-	printf("\nConnected to master!\n");
+	BOOST_LOG_TRIVIAL (info) << "Connected to master!\n";
 
 	// Calc port:
 	std::stringstream sss;
 	sss << server->getPort();
-	printf("Port computed is: %s", sss.str().c_str());
+	SRNP_PRINT_DEBUG << "Port computed is: " << sss.str();
 
 	std::string port_final = sss.str().c_str();
 	// SEND THE PORT WE ARE ON, FIRST. MOST IMPORTANT.
@@ -43,10 +43,10 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 
 	boost::system::error_code error_co;
 	boost::asio::write (socket_, boost::asio::buffer(out_port_size), error_co);
-	printf("\n[MasterLink]: Writing port size to master_hub... %s", error_co.message().c_str());
+	SRNP_PRINT_DEBUG << "[MasterLink]: Writing port size to master_hub" << error_co.message();
 
 	boost::asio::write (socket_, boost::asio::buffer(port_final), error_co);
-	printf("\n[MasterLink]: Writing port to master_hub... %s", error_co.message().c_str());
+	SRNP_PRINT_DEBUG << "[MasterLink]: Writing port to master_hub" << error_co.message();
 
 	// READ STUFF.
 
@@ -65,21 +65,21 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 	std::istringstream mm_stream(std::string(in_data_.data(), in_data_.size()));
 	boost::archive::text_iarchive header_archive(mm_stream);
 
-	printf("\nREAD EVERTHING!");
+	SRNP_PRINT_TRACE << "READ EVERTHING!";
 
 	header_archive >> mm_;
 
 	for(std::vector <ComponentInfo>::iterator iter = mm_.all_components.begin(); iter != mm_.all_components.end(); iter++)
 	{
-		printf("\n[SERVER]: Adding these information...");
-		printf("\n[SERVER]: PORT: %s", iter->port.c_str());
-		printf("\n[SERVER]: OWNER: %d", iter->owner);
-		printf("\n[SERVER]: IP: %s", iter->ip.c_str());
+		SRNP_PRINT_DEBUG << "[SERVER]: Adding these information";
+		SRNP_PRINT_DEBUG << "[SERVER]: PORT: " << iter->port;
+		SRNP_PRINT_DEBUG << "[SERVER]: OWNER: " << iter->owner;
+		SRNP_PRINT_DEBUG << "[SERVER]: IP: " << iter->ip;
 
 		if(iter->ip.compare("127.0.0.1") == 0)
 		{
 			iter->ip = master_ip;
-			printf("\nI changed ip to this: %s", iter->ip.c_str());
+			SRNP_PRINT_DEBUG << "IP 127.0.0.1 should be changed to this: " << iter->ip;
 		}
 	}
 
@@ -89,7 +89,7 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 void MasterLink::sendMMToOurClientAndWaitForUCMsg()
 {
 
-	printf("\n!!!!!We are waiting!!!!!");
+	SRNP_PRINT_TRACE << "\n!!!!!We are waiting!!!!!";
 	my_client_session_->sendMasterMsgToOurClient(mm_);
 
 	// Start listening for update components messages.
@@ -108,21 +108,21 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 	boost::system::error_code errore;
 	boost::asio::read(socket_, boost::asio::buffer(in_data_), errore);
 
-	printf("\n[Server]: Sync receive of UC message from MasterHub: %s", errore.message().c_str());
+	SRNP_PRINT_TRACE << "[Server]: Sync receive of UC message from MasterHub: " << errore.message();
 	std::istringstream uc_stream(std::string(in_data_.data(), in_data_.size()));
 	boost::archive::text_iarchive header_archive(uc_stream);
 
 	UpdateComponents uc;
 	header_archive >> uc;
 
-	printf("\n[UpdateComponentsMsg]: IP: %s.", uc.component.ip.c_str());
-	printf("\n[UpdateComponentsMsg]: OWNER: %d.", uc.component.owner);
-	printf("\n[UpdateComponentsMsg]: PORT: %s.", uc.component.port.c_str());
+	SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: IP: " << uc.component.ip;
+	SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: OWNER: " << uc.component.owner;
+	SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: PORT: " << uc.component.port;
 
 	if(uc.component.ip.compare("127.0.0.1") == 0)
 	{
 		uc.component.ip = master_ip_;
-		printf("\nI changed ip to this: %s", uc.component.ip.c_str());
+		SRNP_PRINT_DEBUG << "I changed ip to this: " << uc.component.ip;
 	}
 
 	my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
@@ -154,11 +154,10 @@ void ServerSession::startReading()
 
 void ServerSession::handleReadHeaderSize (const boost::system::error_code& e)
 {
-	printf("\n[In Server::handleReadHeaderSize]: We got error: %s.", e.message().c_str());
+	SRNP_PRINT_DEBUG << "[In Server::handleReadHeaderSize]: We got error: " << e.message();
 
 	if(!e)
 	{
-		//printf("Reinterpretted size: %s\n", in_header_buffer_.elems);
 		size_t header_size;
 		// Deserialize the length.
 		std::istringstream headersize_stream(std::string(in_header_size_buffer_.elems, sizeof(size_t)));
@@ -177,7 +176,7 @@ void ServerSession::handleReadHeaderSize (const boost::system::error_code& e)
 
 void ServerSession::handleReadHeader (const boost::system::error_code& e)
 {
-	printf("\n[Server::handleReadHeader]: We got error: %s.", e.message().c_str());
+	SRNP_PRINT_DEBUG << "[Server::handleReadHeader]: We got error: " << e.message();
 
 	if(!e)
 	{
@@ -197,9 +196,9 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 			pair_space_.addPair(tuple);
 
 			// Added new pair!
-			printf("\n[Server::handleReadHeader]: Added new pair!");
+			SRNP_PRINT_DEBUG << "[Server::handleReadHeader]: Added new pair!";
 			std::pair<std::string, std::string> tuple_pair = tuple.getPair();
-			printf("\nWe got a tuple: %s, %s\n", tuple_pair.first.c_str(), tuple_pair.second.c_str());
+			SRNP_PRINT_DEBUG << "Pair: " << tuple_pair.first << ", " << tuple_pair.second;
 
 			boost::asio::async_read(socket_, boost::asio::buffer(in_header_size_buffer_), boost::bind(&ServerSession::handleReadHeaderSize, this, boost::asio::placeholders::error) );
 		}
@@ -222,10 +221,9 @@ void ServerSession::handleReadData (const boost::system::error_code& e)
 {
 	if(!e)
 	{
-		printf("\n[In Server::handleReadData]: We got error: %s.", e.message().c_str());
+		SRNP_PRINT_DEBUG << "[In Server::handleReadData]: We got error: " << e.message();
 
 		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
-		//printf("Data that was read is: %s.", read_data.c_str());
 		boost::archive::text_iarchive data_archive(data_stream);
 
 		Pair tuple;
@@ -233,7 +231,7 @@ void ServerSession::handleReadData (const boost::system::error_code& e)
 
 		std::pair<std::string, std::string> tuple_pair = tuple.getPair();
 
-		printf("\nWe got a tuple: %s, %s\n", tuple_pair.first.c_str(), tuple_pair.second.c_str());
+		SRNP_PRINT_DEBUG << "We got a tuple: " << tuple_pair.first << ", " << tuple_pair.second;
 
 		//std::string success ("you fucking passed!");
 		//socket_.async_write_some(boost::asio::buffer(success), boost::bind(&ServerSession::handleWrite, this, boost::asio::placeholders::error));
@@ -250,7 +248,7 @@ void ServerSession::handleWrite (const boost::system::error_code& e)
 {
 	if(!e)
 	{
-		printf("\n[In Server::handleWrite]: Wrote data: %s.\n", e.message().c_str());
+		SRNP_PRINT_DEBUG << "[In Server::handleWrite]: Wrote data: " << e.message();
 		boost::asio::async_read(socket_, boost::asio::buffer(in_header_buffer_), boost::bind(&ServerSession::handleReadHeader, this, boost::asio::placeholders::error) );
 	}
 	else
@@ -293,13 +291,13 @@ boost::system::error_code ServerSession::sendMasterMsgToOurClient(MasterMessage 
 
 	boost::system::error_code error;
 	boost::asio::write(socket_, boost::asio::buffer(out_size_), error);
-	printf("\n[MM SIZE]: Sent. %s", error.message().c_str());
+	SRNP_PRINT_DEBUG << "[MM SIZE]: Sent" << error.message();
 
 	boost::asio::write(socket_, boost::asio::buffer(out_header_), error);
-	printf("\n[MM HEADER]: Sent. %s", error.message().c_str());
+	SRNP_PRINT_DEBUG << "[MM HEADER]: Sent" << error.message();
 
 	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
-	printf("\n[MM MSG]: Sent. %s", error.message().c_str());
+	SRNP_PRINT_DEBUG << "[MM MSG]: Sent" << error.message();
 }
 
 boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(UpdateComponents msg)
@@ -323,25 +321,19 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 	size_stream << std::setw(sizeof(size_t)) << std::hex << out_header_.size();
 	if (!size_stream || size_stream.str().size() != sizeof(size_t))
 	{
-		// Something went wrong, inform the caller.
-		/*
-						boost::system::error_code error(boost::asio::error::invalid_argument);
-						socket_.io_service().post(boost::bind(handler, error));
-						return;
-
-		 */
+		SRNP_PRINT_FATAL << "Couldn't set stream size.";
 	}
 	out_size_ = size_stream.str();
 
 	boost::system::error_code error;
 	boost::asio::write(socket_, boost::asio::buffer(out_size_), error);
-	printf("\n[UC SIZE]: Sent. %s", error.message().c_str());
+	SRNP_PRINT_DEBUG << "[UC SIZE]: Sent", error.message();
 
 	boost::asio::write(socket_, boost::asio::buffer(out_header_), error);
-	printf("\n[UC HEADER]: Sent. %s", error.message().c_str());
+	SRNP_PRINT_DEBUG << "[UC HEADER]: Sent", error.message();
 
 	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
-	printf("\n[UC MSG]: Sent. %s", error.message().c_str());
+	SRNP_PRINT_DEBUG << "[UC MSG]: Sent", error.message();
 }
 
 
@@ -360,17 +352,13 @@ Server::Server (boost::asio::io_service& service, std::string server_ip, std::st
 	if(!my_client_session_)
 		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_queue_));
 
-	printf("\nHere we are folks. Alfonso's pancake breakfast!\n");
+	SRNP_PRINT_INFO << "Here we are folks. St. Alfonso's pancake breakfast!";
 	// Register a callback for accepting new connections.
 	acceptor_.async_accept (my_client_session_->socket(), boost::bind(&Server::handleAcceptedMyClientConnection, this, my_client_session_, boost::asio::placeholders::error));
 
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
 
-	// Template from boost tutorial/documentation.
-	// int const& (X::*get) () const = &X::get;
-
-	printf("\nHere we are folks. Alfonso's pancake breakfasts!\n");
 	// Start the spin thread.
 	startSpinThreads();
 }
@@ -379,14 +367,14 @@ void Server::startSpinThreads()
 {
 	for(int i = 0; i < 4; i++)
 		spin_thread_[i] = boost::thread (boost::bind(&boost::asio::io_service::run, &io_service_));
-	printf("\n4 separate listening threads have started.");
+	SRNP_PRINT_DEBUG << "Four separate listening threads have started.";
 }
 
 void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>& client_session, const boost::system::error_code& e)
 {
 	if(!e)
 	{
-		printf("\n[SERVER]: We connected to our own client. On %d.\n", client_session->socket().remote_endpoint().port());
+		SRNP_PRINT_DEBUG << "[SERVER]: We connected to our own client. On " << client_session->socket().remote_endpoint().port();
 		my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_ip_, master_port_, my_client_session_, this));
 		my_master_link_->sendMMToOurClientAndWaitForUCMsg();
 		client_session->startReading();
@@ -398,7 +386,7 @@ void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>
 	{
 		ServerSession::session_counter--;
 		client_session.reset();
-		printf("\nWe couldn't connect to ourselves. Sucks!");
+		SRNP_PRINT_FATAL << "We couldn't connect to our own client. Sucks!";
 	}
 }
 
@@ -406,7 +394,8 @@ void Server::handleAcceptedConnection (ServerSession* new_session, const boost::
 {
 	if(!e)
 	{
-		printf("\n[SERVER]: We, %s, connect to %s, %d", new_session->socket().local_endpoint().address().to_string().c_str(), new_session->socket().remote_endpoint().address().to_string().c_str(), new_session->socket().remote_endpoint().port());
+		SRNP_PRINT_DEBUG << "[SERVER]: We, connect to " << new_session->socket().remote_endpoint().address().to_string()
+				<< ":" << new_session->socket().remote_endpoint().port();
 		new_session->startReading();
 		ServerSession::session_counter++;
 		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_);
@@ -425,16 +414,16 @@ void Server::onHeartbeat()
 	elapsed_time_ += boost::posix_time::seconds(1);
 	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
-	printf("\n*********************************************************");
-	printf("\n[SERVER] Elapsed time: "); std::cout << elapsed_time_ << std::endl;
-	printf("\n[SERVER] Acceptor State: %s", acceptor_.is_open() ? "Open" : "Closed");
-	printf("\n[SERVER] No. of Active Sessions: %d", ServerSession::session_counter);
-	printf("\n*********************************************************\n");
+	SRNP_PRINT_TRACE << "*********************************************************";
+	SRNP_PRINT_TRACE << "[SERVER] Elapsed time: " << elapsed_time_ << std::endl;
+	SRNP_PRINT_TRACE << "[SERVER] Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
+	SRNP_PRINT_DEBUG << "[SERVER] No. of Active Sessions: ", ServerSession::session_counter;
+	SRNP_PRINT_DEBUG << "*********************************************************";
 }
 
 void Server::waitForEver()
 {
-	printf("\nStarting to wait forever...\n");
+	SRNP_PRINT_DEBUG << "Starting to wait forever...";
 	for(int i = 0; i < 4; i++)
 	{
 		spin_thread_[i].join();

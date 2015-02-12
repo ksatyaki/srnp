@@ -8,6 +8,8 @@
 #ifndef SRNP_CLIENT_H_
 #define SRNP_CLIENT_H_
 
+#include <srnp/srnp_print.h>
+
 #include <queue>
 #include <iostream>
 #include <boost/asio.hpp>
@@ -16,8 +18,6 @@
 #include <boost/bind.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_iarchive.hpp>
-
-#include <iomanip>
 
 #include <MessageHeader.h>
 #include <MasterMessages.h>
@@ -115,6 +115,7 @@ public:
 
 class Client
 {
+
 protected:
 
 	friend class ClientSession;

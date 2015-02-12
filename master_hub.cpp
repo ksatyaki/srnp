@@ -28,8 +28,8 @@ void MasterHubSession::handleRead(MasterHub* master, const boost::system::error_
 {
 	if(!e)
 	{
-		printf("\nGod! We received garbage data. Something is fishy...");
-		boost::asio::async_read(this->socket_, boost::asio::buffer(this->in_buffer_), boost::bind(&MasterHubSession::handleRead, this, master, boost::asio::placeholders::error) );
+		SRNP_PRINT_WARNING << "God! We received garbage data. Something is fishy...";
+		boost::asio::async_read(this->socket_, boost::asio::buffer(this->in_buffer_), master->strand().wrap(boost::bind(&MasterHubSession::handleRead, this, master, boost::asio::placeholders::error)));
 	}
 	else
 	{
@@ -37,14 +37,14 @@ void MasterHubSession::handleRead(MasterHub* master, const boost::system::error_
 
 		// Create a component info message and send to all with a delete message.
 		UpdateComponents update_msg;
-		update_msg.component.ip = socket_.remote_endpoint().address().to_string();
-		//update_msg.component.owner = owner_;
+		//update_msg.component.ip = socket_.remote_endpoint().address().to_string();
+		update_msg.component.owner = owner_;
 		//update_msg.component.port = socket_.remote_endpoint().port();
 		update_msg.operation = UpdateComponents::DELETE;
 
 		master->sendUpdateComponentsMessageToAll(update_msg);
 
-		printf("\nSession Collapse...");
+		SRNP_PRINT_INFO << "Component disconnected. IP: "<<update_msg.component.ip<<", OWNER: "<<update_msg.component.owner;
 		delete this;
 	}
 
@@ -53,40 +53,40 @@ void MasterHubSession::handleRead(MasterHub* master, const boost::system::error_
 MasterHub::MasterHub(boost::asio::io_service& service, unsigned short port) :
 		io_service_ (service),
 		acceptor_ (service, tcp::endpoint(tcp::v4(), port)),
-		heartbeat_timer_ (service, boost::posix_time::seconds(1))
+		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
+		strand_ (service)
 {
 	MasterHubSession* new_session = new MasterHubSession(io_service_);
-	acceptor_.async_accept (new_session->socket(), boost::bind(&MasterHub::handleAcceptedConnection, this, new_session, boost::asio::placeholders::error));
+	acceptor_.async_accept (new_session->socket(), strand_.wrap(boost::bind(&MasterHub::handleAcceptedConnection, this, new_session, boost::asio::placeholders::error)));
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&MasterHub::onHeartbeat, this));
-	printf("\nHere we are folks");
+	SRNP_PRINT_INFO << "Master started";
 	startSpinThreads();
 }
 
-int MasterHub::makeNewOwnerId()
+int MasterHub::makeNewOwnerId(std::string port_str)
 {
-	//
-	//boost::random::uniform_int_distribution<> dist(1, 1000);
-	//return dist(gen);
-
-	return (++MasterHub::buss);
+	int port_no = std::atoi(port_str.c_str());
+	gen.seed(port_no);
+	//gen.seed(boost::posix_time::second_clock::local_time().time_of_day().seconds());
+	boost::random::uniform_int_distribution<> dist(1, 1000);
+		return dist(gen);
 }
 
 void MasterHub::onHeartbeat()
 {
 	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
 	heartbeat_timer_.async_wait (boost::bind(&MasterHub::onHeartbeat, this));
-	printf("\n*********************************************************");
-	printf("\nAcceptor State: %s", acceptor_.is_open() ? "Open" : "Closed");
-	//printf("\nNo. of Active Sessions: %d", sessions_map_.size());
-	printf("\n*********************************************************\n");
+	SRNP_PRINT_TRACE << "*********************************************************";
+	SRNP_PRINT_TRACE << "Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
+	SRNP_PRINT_TRACE << "*********************************************************";
 }
 
 void MasterHub::startSpinThreads()
 {
 	for(int i = 0; i < 2; i++)
 		spin_thread_[i] = boost::thread (boost::bind(&boost::asio::io_service::run, &io_service_));
-	printf("\n[MASTER]: 2 separate listening threads have started.");
+	SRNP_PRINT_INFO << "Two separate listening threads have started.";
 }
 
 void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const boost::system::error_code& e)
@@ -108,15 +108,12 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 		std::string port_of_server;
 		port_value >> port_of_server;
 
-		printf("\nPORT RECEIVED: %s", port_of_server.c_str());
+		SRNP_PRINT_DEBUG << "PORT RECEIVED: " << port_of_server.c_str();
 		// Get the port first.
 
 		// Send this guy his owner_id. And all components we have.
 		MasterMessage msg;
-		msg.owner = makeNewOwnerId();
-
-
-		printf("\nWe give owner ID: %d", msg.owner);
+		msg.owner = makeNewOwnerId(port_of_server);
 
 		new_session->setOwner (msg.owner);
 
@@ -147,18 +144,16 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 		sessions_map_[new_session->getOwner()] = new_session;
 		ports_map_[new_session->getOwner()] = port_of_server;
 
-		printf("\n[In MasterServer::handleAcceptedConnection]: We got error: %s.\n", e.message().c_str());
+		SRNP_PRINT_INFO << "New Connection received from port: "<< port_of_server <<". Assigned owner ID: " << msg.owner;
 
-		boost::asio::async_read(new_session->socket(), boost::asio::buffer(new_session->in_buffer()), boost::bind(&MasterHubSession::handleRead, new_session, this, boost::asio::placeholders::error) );
-		printf("\nFolks!");
+		boost::asio::async_read(new_session->socket(), boost::asio::buffer(new_session->in_buffer()), strand_.wrap(boost::bind(&MasterHubSession::handleRead, new_session, this, boost::asio::placeholders::error)));
 		MasterHubSession* new_session_ = new MasterHubSession(io_service_);
-		acceptor_.async_accept (new_session_->socket(), boost::bind(&MasterHub::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
+		acceptor_.async_accept (new_session_->socket(), strand_.wrap(boost::bind(&MasterHub::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error)));
 	}
 	else
 	{
-		printf("\nSession Collapses...");
-		printf("\nSwaketch: %s", new_session->socket().is_open() ? "OPEN" : "CLOSED");
-		printf("\nError: %s", e.message().c_str());
+		SRNP_PRINT_ERROR << "CONNECTION FAILED";
+		SRNP_PRINT_ERROR << "Error: " << e.message().c_str();
 		delete new_session;
 	}
 }
@@ -179,24 +174,18 @@ void MasterHub::sendUpdateComponentsMessageToAll(UpdateComponents msg)
 		size_stream << std::setw(sizeof(size_t)) << std::hex << out_msg_.size();
 		if (!size_stream || size_stream.str().size() != sizeof(size_t))
 		{
-			// Something went wrong, inform the caller.
-			/*
-				boost::system::error_code error(boost::asio::error::invalid_argument);
-				socket_.io_service().post(boost::bind(handler, error));
-				return;
-
-			 */
+			SRNP_PRINT_FATAL << "Couldn't set stream size.";
 		}
 		std::string out_size_ = size_stream.str();
 
-		boost::system::error_code error;
-
-		error = (iter->second)->sendSyncMsg(out_size_);
-		printf("\nDone writing Size. Error: %s.", error.message().c_str());
-		error = (iter->second)->sendSyncMsg(out_msg_);
-		printf("\nDone writing Data. Error: %s.", error.message().c_str());
-
+		(iter->second)->sendAsyncMsg(out_size_);
+		(iter->second)->sendAsyncMsg(out_msg_);
 	}
+}
+
+void MasterHubSession::handleAsyncWriteMsg(const boost::system::error_code& ec)
+{
+	SRNP_PRINT_DEBUG << "[AsyncWrite handler]: Done writing to "<<owner_<<". Error: " << ec.message();
 }
 
 void MasterHub::sendMasterMessageToComponent(MasterHubSession *new_session, MasterMessage msg)
@@ -212,40 +201,34 @@ void MasterHub::sendMasterMessageToComponent(MasterHubSession *new_session, Mast
 	size_stream << std::setw(sizeof(size_t)) << std::hex << out_msg_.size();
 	if (!size_stream || size_stream.str().size() != sizeof(size_t))
 	{
-		// Something went wrong, inform the caller.
-		/*
-			boost::system::error_code error(boost::asio::error::invalid_argument);
-			socket_.io_service().post(boost::bind(handler, error));
-			return;
-
-		 */
+		SRNP_PRINT_FATAL << "Couldn't set stream size.";
 	}
 	std::string out_size_ = size_stream.str();
 
-	boost::system::error_code error;
-
-	// Write the serialized data to the socket. We use "gather-write" to send
-	// both the header and the data in a single write operation.
-
-	error = new_session->sendSyncMsg(out_size_);
-	printf("\nDone writing Size. Error: %s.", error.message().c_str());
-	error = new_session->sendSyncMsg(out_msg_);
-	printf("\nDone writing Data. Error: %s.", error.message().c_str());
-
+	new_session->sendAsyncMsg(out_size_);
+	new_session->sendAsyncMsg(out_msg_);
 }
 
 
 MasterHub::~MasterHub()
 {
-	// TODO Auto-generated destructor stub
+
 }
 
 } /* namespace srnp */
 
+//void init()
+//{
+//	boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::info);
+//
+//	//boost::log::add_console_log(std::cout , boost::log::keywords::format = "[%TimeStamp%]: %Message%");
+//
+//}
 
 int main()
 {
 	boost::asio::io_service io;
+	srnp::srnp_print_setup(boost::log::trivial::info);
 
 	srnp::MasterHub m (io, 11311);
 
