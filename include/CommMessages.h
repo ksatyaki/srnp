@@ -8,6 +8,19 @@
 #ifndef INCLUDE_COMMMESSAGES_H_
 #define INCLUDE_COMMMESSAGES_H_
 
+namespace srnp
+{
+
+struct RegisterSubscrber
+{
+	/**
+	 * Key of the Pair on which to register the subscriber.
+	 */
+	std::string key;
+
+};
+
+}
 
 
 

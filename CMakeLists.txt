@@ -15,21 +15,20 @@ find_package (Boost REQUIRED
 
 include_directories (include ${Boost_INCLUDE_DIRS})
 
+add_library (pair_space SHARED src/PairSpace.cpp)
+target_link_libraries (pair_space ${Boost_LIBRARIES})
+
 add_library (srnp_server SHARED src/server.cpp)
-target_link_libraries (srnp_server ${Boost_LIBRARIES})
+target_link_libraries (srnp_server pair_space ${Boost_LIBRARIES})
 
 add_library (srnp_client SHARED src/client.cpp)
-target_link_libraries (srnp_client ${Boost_LIBRARIES})
+target_link_libraries (srnp_client pair_space ${Boost_LIBRARIES})
 
-add_executable (master_hub master_hub.cpp)
+add_executable (master_hub src/master_hub.cpp)
 target_link_libraries (master_hub ${Boost_LIBRARIES})
 
 
 add_executable (simple src/simple.cpp)
 target_link_libraries (simple srnp_server srnp_client ${Boost_LIBRARIES})
-
-add_executable (test_pair_space src/single_tests/test_pair_space.cpp)
-target_link_libraries (test_pair_space ${Boost_LIBRARIES})
-
 
 

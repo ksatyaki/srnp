@@ -57,14 +57,18 @@ class MasterLink
 
 	void handleUpdateComponentsMsg(const boost::system::error_code& e);
 
+	void indicatePresence(Server* server, int DesiredOwnerId);
+
 public:
 	void sendMMToOurClientAndWaitForUCMsg();
 
-	MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server);
+	MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server, int desired_owner_id);
 };
 
 class ServerSession
 {
+	int& owner_;
+
 	PairSpace& pair_space_;
 
 	std::queue <Pair>& pair_queue_;
@@ -96,7 +100,7 @@ public:
 
 	static int session_counter;
 
-	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, std::queue <Pair>& pair_queue);
+	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, std::queue <Pair>& pair_queue, int& owner);
 
 	~ServerSession ();
 
@@ -105,7 +109,10 @@ public:
 
 	inline tcp::socket& socket() { return socket_; }
 
-	void startReading();
+	inline void startReading()
+	{
+		boost::asio::async_read(socket_, boost::asio::buffer(in_header_size_buffer_), boost::bind(&ServerSession::handleReadHeaderSize, this, boost::asio::placeholders::error) );
+	};
 
 };
 
@@ -135,7 +142,7 @@ protected:
 
 	boost::shared_ptr<ServerSession> my_client_session_;
 
-	void handleAcceptedMyClientConnection(boost::shared_ptr<ServerSession>& client_session, const boost::system::error_code& e);
+	void handleAcceptedMyClientConnection(boost::shared_ptr<ServerSession>& client_session, int desired_owner_id, const boost::system::error_code& e);
 
 	void handleAcceptedConnection(ServerSession* new_session, const boost::system::error_code& e);
 
@@ -145,6 +152,8 @@ protected:
 
 	PairSpace pair_space_;
 
+	PairSpace pair_space_subscribed_;
+
 public:
 
 	inline unsigned short getPort() { return port_; };
@@ -153,7 +162,7 @@ public:
 
 	inline void printPairSpace() { pair_space_.printPairSpace(); }
 
-	Server(boost::asio::io_service& service, std::string server_ip, std::string master_ip, std::string master_port, std::queue <Pair>& pair_queue);
+	Server(boost::asio::io_service& service, std::string master_ip, std::string master_port, std::queue <Pair>& pair_queue, int desired_owner_id = -1);
 
 	void startSpinThreads();
 

@@ -11,7 +11,7 @@ namespace srnp
 {
 
 /** MASTERLINK CLASS **/
-MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server):
+MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server, int desired_owner_id):
 		socket_ (service),
 		my_client_session_ (my_client_session),
 		resolver_ (service),
@@ -30,23 +30,7 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 
 	BOOST_LOG_TRIVIAL (info) << "Connected to master!\n";
 
-	// Calc port:
-	std::stringstream sss;
-	sss << server->getPort();
-	SRNP_PRINT_DEBUG << "Port computed is: " << sss.str();
-
-	std::string port_final = sss.str().c_str();
-	// SEND THE PORT WE ARE ON, FIRST. MOST IMPORTANT.
-	std::ostringstream port_size_stream;
-	port_size_stream << std::setw(sizeof(size_t)) << std::hex << port_final.size();
-	std::string out_port_size = port_size_stream.str();
-
-	boost::system::error_code error_co;
-	boost::asio::write (socket_, boost::asio::buffer(out_port_size), error_co);
-	SRNP_PRINT_DEBUG << "[MasterLink]: Writing port size to master_hub" << error_co.message();
-
-	boost::asio::write (socket_, boost::asio::buffer(port_final), error_co);
-	SRNP_PRINT_DEBUG << "[MasterLink]: Writing port to master_hub" << error_co.message();
+	indicatePresence(server, desired_owner_id);
 
 	// READ STUFF.
 
@@ -57,6 +41,7 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 	std::istringstream size_stream(std::string(in_size_.elems, in_size_.size()));
 	size_stream >> std::hex >> data_size;
 
+	boost::system::error_code error_co;
 	in_data_.resize(data_size);
 	boost::asio::read(socket_, boost::asio::buffer(in_data_), error_co);
 
@@ -84,6 +69,43 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 	}
 
 	server->owner() = mm_.owner;
+	SRNP_PRINT_DEBUG << "[SERVER]: Owner ID: "<< server->owner();
+}
+
+void MasterLink::indicatePresence(Server* server, int desired_owner_id)
+{
+	IndicatePresence indicatePresenceMsg;
+
+	if(desired_owner_id != -1)
+	{
+		indicatePresenceMsg.force_owner_id = true;
+		indicatePresenceMsg.owner_id = desired_owner_id;
+	}
+
+	// Calc port:
+	std::stringstream sss;
+	sss << server->getPort();
+	SRNP_PRINT_DEBUG << "Port computed is: " << sss.str();
+
+	indicatePresenceMsg.port = sss.str();
+
+	// Serialize this message.
+	std::ostringstream indicate_msg_stream;
+	boost::archive::text_oarchive indicate_msg_archive (indicate_msg_stream);
+	indicate_msg_archive << indicatePresenceMsg;
+	std::string out_indicate_msg = indicate_msg_stream.str();
+
+	// SEND THE PORT WE ARE ON, FIRST. MOST IMPORTANT.
+	std::ostringstream size_stream;
+	size_stream << std::setw(sizeof(size_t)) << std::hex << out_indicate_msg.size();
+	std::string out_size = size_stream.str();
+
+	boost::system::error_code error_co;
+	boost::asio::write (socket_, boost::asio::buffer(out_size), error_co);
+	SRNP_PRINT_DEBUG << "[MasterLink]: Writing port size to master_hub" << error_co.message();
+
+	boost::asio::write (socket_, boost::asio::buffer(out_indicate_msg), error_co);
+	SRNP_PRINT_DEBUG << "[MasterLink]: Writing port to master_hub" << error_co.message();
 }
 
 void MasterLink::sendMMToOurClientAndWaitForUCMsg()
@@ -134,10 +156,11 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 
 int ServerSession::session_counter = 0;
 
-ServerSession::ServerSession (boost::asio::io_service& service, PairSpace& pair_space, std::queue <Pair>& pair_queue) :
+ServerSession::ServerSession (boost::asio::io_service& service, PairSpace& pair_space, std::queue <Pair>& pair_queue, int& owner) :
 		socket_ (service),
 		pair_queue_ (pair_queue),
-		pair_space_ (pair_space)
+		pair_space_ (pair_space),
+		owner_ (owner)
 {
 
 }
@@ -147,14 +170,9 @@ ServerSession::~ServerSession ()
 	socket_.close();
 }
 
-void ServerSession::startReading()
-{
-	boost::asio::async_read(socket_, boost::asio::buffer(in_header_size_buffer_), boost::bind(&ServerSession::handleReadHeaderSize, this, boost::asio::placeholders::error) );
-}
-
 void ServerSession::handleReadHeaderSize (const boost::system::error_code& e)
 {
-	SRNP_PRINT_DEBUG << "[In Server::handleReadHeaderSize]: We got error: " << e.message();
+	SRNP_PRINT_TRACE << "[In Server::handleReadHeaderSize]: We got error: " << e.message();
 
 	if(!e)
 	{
@@ -176,7 +194,7 @@ void ServerSession::handleReadHeaderSize (const boost::system::error_code& e)
 
 void ServerSession::handleReadHeader (const boost::system::error_code& e)
 {
-	SRNP_PRINT_DEBUG << "[Server::handleReadHeader]: We got error: " << e.message();
+	SRNP_PRINT_TRACE << "[Server::handleReadHeader]: We got error: " << e.message();
 
 	if(!e)
 	{
@@ -189,23 +207,29 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 		header_archive >> header;
 		//
 
-		if(header.type_ == MessageHeader::PAIR_NOCOPY)
+		if(header.type == MessageHeader::PAIR_NOCOPY)
 		{
 			Pair tuple = pair_queue_.front();
 			pair_queue_.pop();
+
+			// Redundant. But no loss.
+			tuple.setOwner(owner_);
+
 			pair_space_.addPair(tuple);
 
 			// Added new pair!
-			SRNP_PRINT_DEBUG << "[Server::handleReadHeader]: Added new pair!";
+			SRNP_PRINT_TRACE << "[Server::handleReadHeader]: Added new pair!";
 			std::pair<std::string, std::string> tuple_pair = tuple.getPair();
-			SRNP_PRINT_DEBUG << "Pair: " << tuple_pair.first << ", " << tuple_pair.second;
+			SRNP_PRINT_DEBUG << "Pair from our client: " << tuple_pair.first << ", " << tuple_pair.second << ", " << tuple.getOwner();
 
-			boost::asio::async_read(socket_, boost::asio::buffer(in_header_size_buffer_), boost::bind(&ServerSession::handleReadHeaderSize, this, boost::asio::placeholders::error) );
+			// TODO Invoke callbacks here.
+
+			startReading();
 		}
 		// PARSE ALL REQUESTS HERE!
-		else if(header.type_ == MessageHeader::PAIR)
+		else if(header.type == MessageHeader::PAIR)
 		{
-			in_data_buffer_.resize (header.length_);
+			in_data_buffer_.resize (header.length);
 			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadData, this, boost::asio::placeholders::error) );
 		}
 	}
@@ -221,7 +245,7 @@ void ServerSession::handleReadData (const boost::system::error_code& e)
 {
 	if(!e)
 	{
-		SRNP_PRINT_DEBUG << "[In Server::handleReadData]: We got error: " << e.message();
+		SRNP_PRINT_TRACE << "[In Server::handleReadData]: We got error: " << e.message();
 
 		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
 		boost::archive::text_iarchive data_archive(data_stream);
@@ -231,10 +255,12 @@ void ServerSession::handleReadData (const boost::system::error_code& e)
 
 		std::pair<std::string, std::string> tuple_pair = tuple.getPair();
 
-		SRNP_PRINT_DEBUG << "We got a tuple: " << tuple_pair.first << ", " << tuple_pair.second;
+		SRNP_PRINT_DEBUG << "We got a Pair from another client: " << tuple_pair.first << ", " << tuple_pair.second;
 
-		//std::string success ("you fucking passed!");
-		//socket_.async_write_some(boost::asio::buffer(success), boost::bind(&ServerSession::handleWrite, this, boost::asio::placeholders::error));
+		tuple.setOwner(owner_);
+		pair_space_.addPair(tuple);
+
+		startReading();
 	}
 	else
 	{
@@ -248,7 +274,7 @@ void ServerSession::handleWrite (const boost::system::error_code& e)
 {
 	if(!e)
 	{
-		SRNP_PRINT_DEBUG << "[In Server::handleWrite]: Wrote data: " << e.message();
+		SRNP_PRINT_TRACE << "[In Server::handleWrite]: Wrote data: " << e.message();
 		boost::asio::async_read(socket_, boost::asio::buffer(in_header_buffer_), boost::bind(&ServerSession::handleReadHeader, this, boost::asio::placeholders::error) );
 	}
 	else
@@ -267,8 +293,8 @@ boost::system::error_code ServerSession::sendMasterMsgToOurClient(MasterMessage 
 	// END
 
 	MessageHeader header;
-	header.length_ = out_msg_.size();
-	header.type_ = MessageHeader::MM;
+	header.length = out_msg_.size();
+	header.type = MessageHeader::MM;
 	std::ostringstream msg_header_stream;
 	boost::archive::text_oarchive msg_header_archive (msg_header_stream);
 	msg_header_archive << header;
@@ -298,6 +324,8 @@ boost::system::error_code ServerSession::sendMasterMsgToOurClient(MasterMessage 
 
 	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
 	SRNP_PRINT_DEBUG << "[MM MSG]: Sent" << error.message();
+
+	return error;
 }
 
 boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(UpdateComponents msg)
@@ -309,8 +337,8 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 	// END
 
 	MessageHeader header;
-	header.length_ = out_msg_.size();
-	header.type_ = MessageHeader::UC;
+	header.length = out_msg_.size();
+	header.type = MessageHeader::UC;
 	std::ostringstream msg_header_stream;
 	boost::archive::text_oarchive msg_header_archive (msg_header_stream);
 	msg_header_archive << header;
@@ -334,12 +362,14 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 
 	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
 	SRNP_PRINT_DEBUG << "[UC MSG]: Sent", error.message();
+
+	return error;
 }
 
 
 
-Server::Server (boost::asio::io_service& service, std::string server_ip, std::string master_hub_ip, std::string master_hub_port, std::queue <Pair>& pair_queue) :
-		acceptor_ (service, tcp::endpoint(boost::asio::ip::address::from_string(server_ip), 0)),
+Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std::string master_hub_port, std::queue <Pair>& pair_queue, int desired_owner_id) :
+		acceptor_ (service, tcp::endpoint(tcp::v4(), 0)),
 		strand_ (service),
 		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
 		io_service_ (service),
@@ -350,11 +380,11 @@ Server::Server (boost::asio::io_service& service, std::string server_ip, std::st
 {
 	port_ = acceptor_.local_endpoint().port();
 	if(!my_client_session_)
-		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_queue_));
+		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_queue_, owner_id_));
 
 	SRNP_PRINT_INFO << "Here we are folks. St. Alfonso's pancake breakfast!";
 	// Register a callback for accepting new connections.
-	acceptor_.async_accept (my_client_session_->socket(), boost::bind(&Server::handleAcceptedMyClientConnection, this, my_client_session_, boost::asio::placeholders::error));
+	acceptor_.async_accept (my_client_session_->socket(), boost::bind(&Server::handleAcceptedMyClientConnection, this, my_client_session_, desired_owner_id, boost::asio::placeholders::error));
 
 	// Register a callback for the timer. Called ever second.
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
@@ -370,16 +400,16 @@ void Server::startSpinThreads()
 	SRNP_PRINT_DEBUG << "Four separate listening threads have started.";
 }
 
-void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>& client_session, const boost::system::error_code& e)
+void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>& client_session, int desired_owner_id, const boost::system::error_code& e)
 {
 	if(!e)
 	{
 		SRNP_PRINT_DEBUG << "[SERVER]: We connected to our own client. On " << client_session->socket().remote_endpoint().port();
-		my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_ip_, master_port_, my_client_session_, this));
+		my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_ip_, master_port_, my_client_session_, this, desired_owner_id));
 		my_master_link_->sendMMToOurClientAndWaitForUCMsg();
 		client_session->startReading();
 		ServerSession::session_counter++;
-		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_);
+		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_);
 		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
 	}
 	else
@@ -398,7 +428,7 @@ void Server::handleAcceptedConnection (ServerSession* new_session, const boost::
 				<< ":" << new_session->socket().remote_endpoint().port();
 		new_session->startReading();
 		ServerSession::session_counter++;
-		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_);
+		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_);
 		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
 	}
 	else
@@ -417,8 +447,8 @@ void Server::onHeartbeat()
 	SRNP_PRINT_TRACE << "*********************************************************";
 	SRNP_PRINT_TRACE << "[SERVER] Elapsed time: " << elapsed_time_ << std::endl;
 	SRNP_PRINT_TRACE << "[SERVER] Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
-	SRNP_PRINT_DEBUG << "[SERVER] No. of Active Sessions: ", ServerSession::session_counter;
-	SRNP_PRINT_DEBUG << "*********************************************************";
+	SRNP_PRINT_DEBUG << "[SERVER] No. of Active Sessions: " << ServerSession::session_counter;
+	SRNP_PRINT_TRACE << "*********************************************************";
 }
 
 void Server::waitForEver()

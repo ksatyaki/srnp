@@ -18,17 +18,34 @@ struct MessageHeader
 {
 	enum MessageType
 	{
+		// We reject incoming messages with this type.
 		INVALID = 0,
-		REQUEST,
-		RESPONSE,
+		// This is the register subscriber call.
+		REGISTER_SUBSCRIBER,
+		// The cancel subscriber call.
+		CANCEL_SUBSCRIBER,
+		// Register Callback. (Local only).
+		REGISTER_CALLBACK,
+		// Cancel callback.
+		CANCEL_CALLBACK,
+		// To delete a pair in our pair-space.
+		PAIR_DELETE,
+		// To add a pair to our pair space.
 		PAIR,
-		PAIR_NOCOPY
+		// To pop a pair from the queue and add it to our pair space. (Local only).
+		PAIR_NOCOPY,
+		// To update a pair on the subscribed pair-space.
+		PAIR_UPDATE
 	};
 
+	/**
+	 * C++11 supports scoped enums.
+	 * But, we need to keep this in the MessageHeader scope.
+	 */
 	enum MasterMessageType
 	{
 		// MasterMessage is sent.
-		MM = 0,
+		MM = 100,
 		// UpdateComponents is sent.
 		UC
 	};
@@ -39,24 +56,24 @@ struct MessageHeader
 	 * The entire length of the Message excluding the header.
 	 * The length of the header is fixed.
 	 */
-	size_t length_;
+	size_t length;
 
 	/**
 	 * The type of the message.
 	 * Must be one of REQUEST, RESPONSE or PAIR.
 	 */
-	uint8_t type_;
+	uint8_t type;
 
 	template <typename OutputArchive>
 	void serialize (OutputArchive& o_archive, const int version)
 	{
-		o_archive & length_;
-		o_archive & type_;
+		o_archive & length;
+		o_archive & type;
 	}
 
-	MessageHeader(): length_(0), type_(INVALID) { }
+	MessageHeader(): length(0), type(INVALID) { }
 
-	MessageHeader (const size_t& length, const MessageType& type): length_ (length), type_(type) { }
+	MessageHeader (const size_t& Length, const MessageType& Type): length (Length), type(Type) { }
 
 };
 

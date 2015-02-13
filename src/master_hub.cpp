@@ -5,7 +5,7 @@
  *      Author: ace
  */
 
-#include "master_hub.h"
+#include "srnp/master_hub.h"
 
 namespace srnp
 {
@@ -40,7 +40,7 @@ void MasterHubSession::handleRead(MasterHub* master, const boost::system::error_
 		//update_msg.component.ip = socket_.remote_endpoint().address().to_string();
 		update_msg.component.owner = owner_;
 		//update_msg.component.port = socket_.remote_endpoint().port();
-		update_msg.operation = UpdateComponents::DELETE;
+		update_msg.operation = UpdateComponents::REMOVE;
 
 		master->sendUpdateComponentsMessageToAll(update_msg);
 
@@ -69,7 +69,7 @@ int MasterHub::makeNewOwnerId(std::string port_str)
 	int port_no = std::atoi(port_str.c_str());
 	gen.seed(port_no);
 	//gen.seed(boost::posix_time::second_clock::local_time().time_of_day().seconds());
-	boost::random::uniform_int_distribution<> dist(1, 1000);
+	boost::random::uniform_int_distribution<> dist(1000, 10000);
 		return dist(gen);
 }
 
@@ -95,25 +95,33 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 	{
 
 		boost::system::error_code errore;
-		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_port_size()), errore);
+		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_size()), errore);
 
 		size_t size_of_port;
-		std::istringstream port_size_stream(std::string(new_session->in_port_size().elems, new_session->in_port_size().size()));
+		std::istringstream port_size_stream(std::string(new_session->in_size().elems, new_session->in_size().size()));
 		port_size_stream >> std::hex >> size_of_port;
 
 		new_session->in_data().resize(size_of_port);
 		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_data()), errore);
 
-		std::istringstream port_value (std::string(new_session->in_data().data(), new_session->in_data().size()));
-		std::string port_of_server;
-		port_value >> port_of_server;
+		std::istringstream indicate_msg_stream (std::string(new_session->in_data().data(), new_session->in_data().size()));
+		boost::archive::text_iarchive indicate_msg_archive (indicate_msg_stream);
 
-		SRNP_PRINT_DEBUG << "PORT RECEIVED: " << port_of_server.c_str();
+		IndicatePresence indicatePresence;
+		indicate_msg_archive >> indicatePresence;
+
+		SRNP_PRINT_DEBUG << "PORT RECEIVED: " << indicatePresence.port;
 		// Get the port first.
 
 		// Send this guy his owner_id. And all components we have.
 		MasterMessage msg;
-		msg.owner = makeNewOwnerId(port_of_server);
+		if(indicatePresence.force_owner_id)
+		{
+			SRNP_PRINT_WARNING << "You have asked for a specific Owner. Risky choice my friend...";
+			msg.owner = indicatePresence.owner_id;
+		}
+		else
+			msg.owner = makeNewOwnerId(indicatePresence.port);
 
 		new_session->setOwner (msg.owner);
 
@@ -135,16 +143,16 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 		UpdateComponents update_msg;
 		update_msg.component.ip = new_session->socket().remote_endpoint().address().to_string();
 		update_msg.component.owner = new_session->getOwner();
-		update_msg.component.port = port_of_server;
+		update_msg.component.port = indicatePresence.port;
 		update_msg.operation = UpdateComponents::ADD;
 
 		sendUpdateComponentsMessageToAll(update_msg);
 
 		// Finally add this guy to the HashMap.
 		sessions_map_[new_session->getOwner()] = new_session;
-		ports_map_[new_session->getOwner()] = port_of_server;
+		ports_map_[new_session->getOwner()] = indicatePresence.port;
 
-		SRNP_PRINT_INFO << "New Connection received from port: "<< port_of_server <<". Assigned owner ID: " << msg.owner;
+		SRNP_PRINT_INFO << "New Connection received from port: "<< indicatePresence.port <<". Assigned owner ID: " << msg.owner;
 
 		boost::asio::async_read(new_session->socket(), boost::asio::buffer(new_session->in_buffer()), strand_.wrap(boost::bind(&MasterHubSession::handleRead, new_session, this, boost::asio::placeholders::error)));
 		MasterHubSession* new_session_ = new MasterHubSession(io_service_);

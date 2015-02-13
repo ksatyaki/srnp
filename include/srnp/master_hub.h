@@ -15,6 +15,7 @@
 #include <boost/thread/thread.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
 
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
@@ -47,7 +48,7 @@ class MasterHubSession
 
 	boost::array <char, sizeof(size_t)> in_buffer_;
 
-	boost::array <char, sizeof(size_t)> in_port_size_;
+	boost::array <char, sizeof(size_t)> in_size_;
 
 public:
 	void handleRead(MasterHub* master, const boost::system::error_code& e);
@@ -60,7 +61,7 @@ public:
 
 	inline boost::array <char, sizeof(size_t)>& in_buffer() { return in_buffer_; }
 
-	inline boost::array <char, sizeof(size_t)>& in_port_size() { return in_port_size_; }
+	inline boost::array <char, sizeof(size_t)>& in_size() { return in_size_; }
 
 	inline int getOwner() { return owner_; }
 

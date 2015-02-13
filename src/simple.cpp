@@ -13,12 +13,11 @@ int main(int argn, char* args[])
 
 	if(argn < 4)
 	{
-		printf("\nWrong.");
+		printf("\n<master_ip> <master_port> <owner_id>");
 		return 0;
 	}
 
-	boost::asio::io_service io_server;
-	boost::asio::io_service io_client;
+	boost::asio::io_service io_;
 	printf("\nstrats!\n");
 
 	std::queue <srnp::Pair> q;
@@ -26,7 +25,7 @@ int main(int argn, char* args[])
 
 	std::string master_hub_ip = args[1];
 	std::string master_hub_port = args[2];
-	srnp::Server server (io_server, "0.0.0.0", master_hub_ip, master_hub_port, q);
+	srnp::Server server (io_, master_hub_ip, master_hub_port, q, atoi(args[3]));
 
 	unsigned short port = server.getPort();
 
@@ -40,26 +39,29 @@ int main(int argn, char* args[])
 	printf("\nPORT INT: %d", server.getPort());
 	printf("\nPORT STR: %s", sport.str().c_str());
 	printf("\nOWNER: %d", server.owner());
-	srnp::Client cli (io_client, args[3], sport.str(), q);
+	srnp::Client cli (io_, "127.0.0.1", sport.str(), q);
+
+	sleep(1);
 
 	printf("\nGo!\n");
 
-	/*
-	cli.setPair("simple", "test");
+	cli.setPair("simple", "test1");
+	cli.setPair("IronMaiden", "test2");
+	cli.setPair("simple.phooler", "test3");
+	cli.setPair(30, "Googler", "Sucker30");
+	cli.setPair(53, "Googler", "Sucker53");
 	sleep(1);
 	server.printPairSpace();
 
-	cli.setPair("IronMaiden", "test");
+	cli.setPair("simple.phooler", "tests");
+	cli.setPair(30, "Googler", "Sucker2");
+	cli.setPair(53, "Googler", "Sucker2");
 	sleep(1);
 	server.printPairSpace();
 
-	cli.setPair("simple.phooler", "test");
-	sleep(1);
-	server.printPairSpace();
-	*/
 
 	printf("\nAll over.");
-	io_client.run();
+	io_.run();
 
 	return 0;
 }

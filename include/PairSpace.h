@@ -14,17 +14,20 @@
 namespace srnp
 {
 
-
-
 class PairSpace
 {
 	std::vector <Pair> pairs_;
 
 public:
-	PairSpace() { };
+	PairSpace();
 
 	/**
-	 * Remove a pair from the space.
+	 * Remove a pair from the space using its key.
+	 */
+	void removePair(const std::string& key);
+
+	/**
+	 * Remove a pair from the space using its iterator.
 	 */
 	inline void removePair(const std::vector <Pair>::iterator& iter)
 	{
@@ -35,57 +38,17 @@ public:
 	/**
 	 * Get the pair as a boost::shared_ptr with the key.
 	 */
-	std::vector <Pair>::iterator getPairIteratorWithKey(const std::string& key)
-	{
-		typedef std::vector <Pair> PairVector;
-		for(PairVector::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
-		{
-			if(iter->getKey().compare(key) == 0)
-			{
-				return iter;
-			}
-		}
-
-		return pairs_.end();
-	}
+	std::vector <Pair>::iterator getPairIteratorWithKey(const std::string& key);
 
 	/**
 	 * Add a pair or update a pair in the pair-space.
 	 */
-	void addPair(const Pair& pair)
-	{
-		std::vector<Pair>::iterator iter = getPairIteratorWithKey (pair.getKey());
-		if(iter == pairs_.end())
-		{
-			//printf("Brand new pair added.\n");
-			pairs_.push_back(pair);
-		}
-		else
-		{
-			//printf("Something with that key is there already. Updated.\n");
-			pairs_.erase(iter);
-			// TODO Update the value and the stamp.
-			pairs_.push_back(pair);
-		}
-	}
+	void addPair(const Pair& pair);
 
 	/**
 	 * Print the entire pair-space.
 	 */
-	void printPairSpace()
-	{
-		std::cout<<"*********************";
-		std::cout <<"\nALL PAIRS\n";
-		std::cout<<"*********************\n";
-		typedef std::vector <Pair> PairVector;
-		for(PairVector::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
-		{
-			//boost::shared_ptr <Pair <PairValueType> > this_pair = boost::static_pointer_cast <PairValueType>(*iter);
-
-			std::cout<<(*iter);
-		}
-		std::cout<<"*********************"<<std::endl;
-	}
+	void printPairSpace();
 };
 
 } /* namespace srnp */

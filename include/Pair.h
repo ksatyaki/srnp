@@ -33,17 +33,6 @@ protected:
 	int owner_;
 
 	/**
-	 * A list of owner ids subscribed to this pair.
-	 */
-	std::vector <int> subscribers_;
-
-	/**
-	 * A callback.
-	 * There can be only one.
-	 */
-	boost::function <Pair()> callback_;
-
-	/**
 	 * Write time of this Pair.
 	 */
 	boost::posix_time::ptime write_time_;
@@ -54,12 +43,22 @@ protected:
 	boost::posix_time::ptime expiry_time_;
 
 public:
+
+	/**
+	 * A list of owner ids subscribed to this pair.
+	 */
+	std::vector <int> subscribers_;
+
+	/**
+	 * A callback.
+	 * There can be only one.
+	 */
+	boost::function <const Pair()> callback_;
+
 	/**
 	 * Convenience typedef.
 	 */
 	typedef boost::shared_ptr <Pair> Ptr;
-
-
 
 	Pair (const std::string& key, const std::string& value, const int& owner) :
 		pair_(std::pair <std::string, std::string> (key, value)),
@@ -71,6 +70,31 @@ public:
 	{
 
 	}
+
+	/**
+	 * Set Key and Value.
+	 */
+	inline void setPair(const std::string& key, const std::string& value) { pair_.first = key; pair_.second = value; }
+
+	/**
+	 * Set the value of the pair.
+	 */
+	inline void setValue(const std::string& value) { pair_.second = value; }
+
+	/**
+	 * Set the owner of the pair.
+	 */
+	inline void setOwner(const int& owner) { owner_ = owner; }
+
+	/**
+	 * Set write time.
+	 */
+	inline void setWriteTime(const boost::posix_time::ptime& write_time) { write_time_ = write_time; }
+
+	/**
+	 * Set expiry time.
+	 */
+	inline void setExpiryTime(const boost::posix_time::ptime& expiry_time) { expiry_time_ = expiry_time; }
 
 	/**
 	 * Get the owner for the pair.
@@ -93,6 +117,16 @@ public:
 	inline std::pair <std::string, std::string> getPair () const { return pair_; }
 
 	/**
+	 * Get write time.
+	 */
+	inline boost::posix_time::ptime getWriteTime() const { return write_time_; }
+
+	/**
+	 * Get expiry time.
+	 */
+	inline boost::posix_time::ptime getExpiryTime() const { return expiry_time_; }
+
+	/**
 	 * The serialization function.
 	 */
 	template <typename OutputArchive>
@@ -113,7 +147,8 @@ typedef boost::shared_ptr <Pair> PairPtr;
  */
 std::ostream& operator<<(std::ostream& s, const Pair& pair)
 {
-	s<<"Key: "<<pair.getKey()<<". Value: "<<pair.getValue()<<". Owner: "<<pair.getOwner()<<std::endl;
+	s<<"Key: "<<pair.getKey()<<". Value: "<<pair.getValue()<<"."<<std::endl
+			<<"Owner: "<<pair.getOwner()<<". Write time: "<<pair.getWriteTime()<<". Expiry time: "<<pair.getExpiryTime()<<"."<<std::endl;
 	return s;
 }
 

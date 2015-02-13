@@ -106,9 +106,9 @@ protected:
 public:
 
 	/**
-	 * The setPair sets a pair on the given connection.
+	 * Sends the message to the server. Async operation.
 	 */
-	bool sendPair(const std::string& out_header_size, const std::string& out_header, const std::string& out_data);
+	bool sendDataToServer(const std::string& out_header_size, const std::string& out_header, const std::string& out_data);
 
 	ClientSession(boost::asio::io_service& service, const std::string& host, const std::string& port, bool is_this_our_server_session = false, Client* client = NULL);
 };
@@ -135,6 +135,8 @@ protected:
 public:
 
 	bool setPair(const std::string& key, const std::string& value);
+
+	bool setPair(const int& owner, const std::string& key, const std::string& value);
 
 	Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, std::queue <Pair>& pair_queue);
 
