@@ -1,5 +1,0 @@
-Every computer must run a local daemon. This serves as a local-master.
-
-A component can subscribe to a tuple.
-When it subscribes, it sends this request to the daemon. 
-Daemon knows who has the tuple. He registers a request on the corresponding daemon.
