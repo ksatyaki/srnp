@@ -238,7 +238,7 @@ int main()
 	boost::asio::io_service io;
 	srnp::srnp_print_setup(boost::log::trivial::info);
 
-	srnp::MasterHub m (io, 11311);
+	srnp::MasterHub m (io, 12321);
 
 	io.run();
 }

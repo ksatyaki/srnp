@@ -121,34 +121,42 @@ void MasterLink::sendMMToOurClientAndWaitForUCMsg()
 
 void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 {
-	size_t data_size;
-
-	std::istringstream size_stream (std::string(in_size_.elems, in_size_.size()));
-	size_stream >> std::hex >> data_size;
-
-	in_data_.resize(data_size);
-	boost::system::error_code errore;
-	boost::asio::read(socket_, boost::asio::buffer(in_data_), errore);
-
-	SRNP_PRINT_TRACE << "[Server]: Sync receive of UC message from MasterHub: " << errore.message();
-	std::istringstream uc_stream(std::string(in_data_.data(), in_data_.size()));
-	boost::archive::text_iarchive header_archive(uc_stream);
-
-	UpdateComponents uc;
-	header_archive >> uc;
-
-	SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: IP: " << uc.component.ip;
-	SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: OWNER: " << uc.component.owner;
-	SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: PORT: " << uc.component.port;
-
-	if(uc.component.ip.compare("127.0.0.1") == 0)
+	if(!e)
 	{
-		uc.component.ip = master_ip_;
-		SRNP_PRINT_DEBUG << "I changed ip to this: " << uc.component.ip;
-	}
+		size_t data_size;
 
-	my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
-	boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
+		std::istringstream size_stream (std::string(in_size_.elems, in_size_.size()));
+		size_stream >> std::hex >> data_size;
+
+		in_data_.resize(data_size);
+		boost::system::error_code errore;
+		boost::asio::read(socket_, boost::asio::buffer(in_data_), errore);
+
+		SRNP_PRINT_TRACE << "[Server]: Sync receive of UC message from MasterHub: " << errore.message();
+		std::istringstream uc_stream(std::string(in_data_.data(), in_data_.size()));
+		boost::archive::text_iarchive header_archive(uc_stream);
+
+		UpdateComponents uc;
+		header_archive >> uc;
+
+		SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: IP: " << uc.component.ip;
+		SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: OWNER: " << uc.component.owner;
+		SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: PORT: " << uc.component.port;
+
+		if(uc.component.ip.compare("127.0.0.1") == 0)
+		{
+			uc.component.ip = master_ip_;
+			SRNP_PRINT_DEBUG << "I changed ip to this: " << uc.component.ip;
+		}
+
+		my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
+		boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
+	}
+	else
+	{
+		SRNP_PRINT_FATAL << "Master seems disconnected! God we're in deadly peril.";
+		// Do something to attempt and reconnect.
+	}
 }
 
 
@@ -156,12 +164,15 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 
 int ServerSession::session_counter = 0;
 
-ServerSession::ServerSession (boost::asio::io_service& service, PairSpace& pair_space, std::queue <Pair>& pair_queue, int& owner) :
+ServerSession::ServerSession (boost::asio::io_service& service, PairSpace& pair_space, PairSpace& pair_space_subscribed,
+		PairQueue& pair_queue, int& owner) :
 		socket_ (service),
+		pair_space_subscribed_ (pair_space_subscribed),
 		pair_queue_ (pair_queue),
 		pair_space_ (pair_space),
 		owner_ (owner)
 {
+
 
 }
 
@@ -207,30 +218,53 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 		header_archive >> header;
 		//
 
+		if(header.type != MessageHeader::PAIR_NOCOPY)
+			in_data_buffer_.resize (header.length);
+
 		if(header.type == MessageHeader::PAIR_NOCOPY)
 		{
-			Pair tuple = pair_queue_.front();
-			pair_queue_.pop();
+			// CRITICAL SECTION!!!
+
+			pair_queue_.pair_queue_mutex.lock();
+			Pair tuple = pair_queue_.pair_queue.front();
+			pair_queue_.pair_queue.pop();
+			pair_queue_.pair_queue_mutex.unlock();
 
 			// Redundant. But no loss.
 			tuple.setOwner(owner_);
 
 			pair_space_.addPair(tuple);
 
+			std::vector <Pair>::iterator iter = pair_space_.getPairIteratorWithKey(tuple.getKey());
+			sendPairUpdateToClient(iter);
+			if(iter->callback_ != NULL)
+				iter->callback_(*iter);
+
 			// Added new pair!
 			SRNP_PRINT_TRACE << "[Server::handleReadHeader]: Added new pair!";
 			std::pair<std::string, std::string> tuple_pair = tuple.getPair();
 			SRNP_PRINT_DEBUG << "Pair from our client: " << tuple_pair.first << ", " << tuple_pair.second << ", " << tuple.getOwner();
 
-			// TODO Invoke callbacks here.
+			// Send message to client.
 
 			startReading();
 		}
-		// PARSE ALL REQUESTS HERE!
+
 		else if(header.type == MessageHeader::PAIR)
 		{
-			in_data_buffer_.resize (header.length);
-			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadData, this, boost::asio::placeholders::error) );
+			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadPair, this, boost::asio::placeholders::error) );
+		}
+		else if(header.type == MessageHeader::PAIR_UPDATE)
+		{
+			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadPairUpdate, this, boost::asio::placeholders::error) );
+		}
+		else if(header.type == MessageHeader::SUBSCRIPTION)
+		{
+			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadSubscription, this, boost::asio::placeholders::error) );
+		}
+		else if(header.type == MessageHeader::CALLBACK)
+		{
+			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadCallback, this, boost::asio::placeholders::error) );
 		}
 	}
 	else
@@ -241,11 +275,196 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 
 }
 
-void ServerSession::handleReadData (const boost::system::error_code& e)
+void ServerSession::sendPairUpdateToClient(std::vector <Pair>::iterator iter)
+{
+	if(iter->subscribers_.size() != 0)
+	{
+		std::string out_data_ = "";
+		// END
+
+		// Setup the message header.
+		srnp::MessageHeader header (0, srnp::MessageHeader::PAIR_UPDATE);
+		// Serialize the data first so we know how large it is.
+		std::ostringstream header_archive_stream;
+		boost::archive::text_oarchive header_archive(header_archive_stream);
+		header_archive << header;
+		std::string out_header_ = header_archive_stream.str();
+		// END
+
+		// Prepare header length
+		std::ostringstream header_size_stream;
+		header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
+		if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+		{
+			SRNP_PRINT_DEBUG << "[sendPairUpdate]: Couldn't set stream size!";
+		}
+		std::string  out_header_size_ = header_size_stream.str();
+
+		// CRITICAL SECTION!!!
+		// Be sure that once we have pushed into the queue, we should also send the data.
+		// Because if we don't, another thread could push to queue and send after we have
+		// just pushed. And on the receiving end, our member will be popped.
+		boost::mutex::scoped_lock scoped_mutex_lock(pair_queue_.pair_update_queue_mutex);
+		pair_queue_.pair_update_queue.push(*iter);
+
+		SRNP_PRINT_DEBUG << "Writing Data To Client.";
+
+		boost::mutex::scoped_lock write_lock (socket_write_mutex);
+		this->sendDataToClient (out_header_size_, out_header_, out_data_);
+	}
+}
+
+bool ServerSession::sendDataToClient(const std::string& out_header_size, const std::string& out_header, const std::string& out_data)
+{
+
+	boost::system::error_code error;
+
+	boost::asio::write(socket_, boost::asio::buffer(out_header_size), error);
+	SRNP_PRINT_TRACE << "[sendPairUp]: Done writing header size. Error: " << error.message();
+
+	boost::asio::write(socket_, boost::asio::buffer(out_header), error);
+	SRNP_PRINT_TRACE << "[sendPairUp]: Done writing header. Error: " << error.message();
+
+	if(out_data.size() != 0)
+	{
+		boost::asio::write(socket_, boost::asio::buffer(out_data), error);
+		SRNP_PRINT_TRACE << "[sendPairUp]: Done writing data. Error: " << error.message();
+	}
+
+	if(!error)
+		return true;
+	else return false;
+}
+
+void ServerSession::handleReadCallback(const boost::system::error_code& e)
 {
 	if(!e)
 	{
-		SRNP_PRINT_TRACE << "[In Server::handleReadData]: We got error: " << e.message();
+		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
+		boost::archive::text_iarchive data_archive(data_stream);
+		SubscriptionORCallback subscriptionORCallbackMsg;
+		data_archive >> subscriptionORCallbackMsg;
+		SRNP_PRINT_DEBUG << "We got a Callback Request: ";
+
+		if(subscriptionORCallbackMsg.owner_id == this->owner_)
+		{
+			SRNP_PRINT_DEBUG << "Registering/cancelling a callback on our own sweet pair.";
+			if(subscriptionORCallbackMsg.registering)
+			{
+				pair_queue_.callback_queue_mutex.lock();
+				pair_space_.addCallback(this->owner_, subscriptionORCallbackMsg.key, pair_queue_.callback_queue.front());
+				pair_queue_.callback_queue.pop();
+				pair_queue_.callback_queue_mutex.unlock();
+			}
+			else
+			{
+				pair_space_.removeCallback(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key);
+			}
+		}
+
+		else
+		{
+			SRNP_PRINT_DEBUG << "Registering/cancelling a callback on a subscribed pair.";
+			if(subscriptionORCallbackMsg.registering)
+			{
+				pair_queue_.callback_queue_mutex.lock();
+				pair_space_subscribed_.addCallback(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key, pair_queue_.callback_queue.front());
+				pair_queue_.callback_queue.pop();
+				pair_queue_.callback_queue_mutex.unlock();
+			}
+			else
+			{
+				pair_space_subscribed_.removeCallback(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key);
+			}
+		}
+
+		startReading();
+	}
+	else
+	{
+		ServerSession::session_counter--;
+		delete this;
+	}
+
+}
+
+void ServerSession::handleReadSubscription(const boost::system::error_code& e)
+{
+	if(!e)
+	{
+		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
+		boost::archive::text_iarchive data_archive(data_stream);
+		SubscriptionORCallback subscriptionORCallbackMsg;
+		data_archive >> subscriptionORCallbackMsg;
+		SRNP_PRINT_DEBUG << "We got a subscription request: ";
+
+		if(subscriptionORCallbackMsg.owner_id == this->owner_)
+		{
+			SRNP_PRINT_DEBUG << "Registering/cancelling a subscription on our own sweet pair.";
+			if(subscriptionORCallbackMsg.registering)
+			{
+				pair_space_.addSubscription(this->owner_, subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
+			}
+			else
+			{
+				pair_space_.removeSubscription(this->owner_, subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
+			}
+		}
+
+		else
+		{
+			SRNP_PRINT_FATAL << "Something is terribly wrong. Can't register a subscriber on a subscribed pair! I am doing nothing.";
+		}
+
+		startReading();
+	}
+	else
+	{
+		ServerSession::session_counter--;
+		delete this;
+	}
+
+}
+
+void ServerSession::handleReadPairUpdate (const boost::system::error_code& e)
+{
+	if(!e)
+	{
+		SRNP_PRINT_TRACE << "Got a pair update. Opening packet.";
+		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
+		boost::archive::text_iarchive data_archive(data_stream);
+
+		Pair tuple;
+		data_archive >> tuple;
+		SRNP_PRINT_DEBUG << "We got a PairUpdate: " << tuple;
+		pair_space_subscribed_.addPair(tuple);
+
+		std::vector <Pair>::iterator iter = pair_space_subscribed_.getPairIteratorWithOwnerAndKey(tuple.getOwner(), tuple.getKey());
+		if(iter->callback_ != NULL)
+		{
+			SRNP_PRINT_DEBUG << "Making a callback!";
+			iter->callback_(*iter);
+		}
+		else
+		{
+			SRNP_PRINT_DEBUG << "No callbacks to invoke.";
+		}
+
+		startReading();
+	}
+	else
+	{
+		ServerSession::session_counter--;
+		delete this;
+	}
+
+}
+
+void ServerSession::handleReadPair (const boost::system::error_code& e)
+{
+	if(!e)
+	{
+		SRNP_PRINT_TRACE << "[In Server::handleReadPair]: We got error: " << e.message();
 
 		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
 		boost::archive::text_iarchive data_archive(data_stream);
@@ -259,6 +478,11 @@ void ServerSession::handleReadData (const boost::system::error_code& e)
 
 		tuple.setOwner(owner_);
 		pair_space_.addPair(tuple);
+
+		std::vector <Pair>::iterator iter = pair_space_.getPairIteratorWithKey(tuple.getKey());
+		sendPairUpdateToClient(iter);
+		if(iter->callback_ != NULL)
+			iter->callback_(*iter);
 
 		startReading();
 	}
@@ -368,7 +592,7 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 
 
 
-Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std::string master_hub_port, std::queue <Pair>& pair_queue, int desired_owner_id) :
+Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std::string master_hub_port, PairQueue& pair_queue, int desired_owner_id) :
 		acceptor_ (service, tcp::endpoint(tcp::v4(), 0)),
 		strand_ (service),
 		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
@@ -380,7 +604,7 @@ Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std
 {
 	port_ = acceptor_.local_endpoint().port();
 	if(!my_client_session_)
-		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_queue_, owner_id_));
+		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_space_subscribed_, pair_queue_, owner_id_));
 
 	SRNP_PRINT_INFO << "Here we are folks. St. Alfonso's pancake breakfast!";
 	// Register a callback for accepting new connections.
@@ -409,7 +633,7 @@ void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>
 		my_master_link_->sendMMToOurClientAndWaitForUCMsg();
 		client_session->startReading();
 		ServerSession::session_counter++;
-		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_);
+		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_space_subscribed_, pair_queue_, owner_id_);
 		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
 	}
 	else
@@ -428,7 +652,7 @@ void Server::handleAcceptedConnection (ServerSession* new_session, const boost::
 				<< ":" << new_session->socket().remote_endpoint().port();
 		new_session->startReading();
 		ServerSession::session_counter++;
-		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_);
+		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_space_subscribed_, pair_queue_, owner_id_);
 		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
 	}
 	else

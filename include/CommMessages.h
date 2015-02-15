@@ -5,18 +5,45 @@
  *      Author: ace
  */
 
-#ifndef INCLUDE_COMMMESSAGES_H_
-#define INCLUDE_COMMMESSAGES_H_
+#ifndef COMMMESSAGES_H_
+#define COMMMESSAGES_H_
+
+#include <string>
+#include <boost/function.hpp>
 
 namespace srnp
 {
 
-struct RegisterSubscrber
+struct SubscriptionORCallback
 {
 	/**
-	 * Key of the Pair on which to register the subscriber.
+	 * Key of the Pair on which to register the subscription / callback.
 	 */
 	std::string key;
+
+	/**
+	 * The owner_id for subscription / callback.
+	 */
+	int owner_id;
+
+	/**
+	 * The owner_id of the subscriber.
+	 */
+	int subscriber;
+
+	/**
+	 * To know if we are registering or cancelling.
+	 */
+	bool registering;
+
+	template <typename OutputArchive>
+	void serialize (OutputArchive& o_archive, const int version)
+	{
+		o_archive & owner_id;
+		o_archive & key;
+		o_archive & subscriber;
+		o_archive & registering;
+	}
 
 };
 

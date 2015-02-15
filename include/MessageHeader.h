@@ -20,14 +20,10 @@ struct MessageHeader
 	{
 		// We reject incoming messages with this type.
 		INVALID = 0,
-		// This is the register subscriber call.
-		REGISTER_SUBSCRIBER,
-		// The cancel subscriber call.
-		CANCEL_SUBSCRIBER,
-		// Register Callback. (Local only).
-		REGISTER_CALLBACK,
-		// Cancel callback.
-		CANCEL_CALLBACK,
+		// This is the register/cancel subscriber call.
+		SUBSCRIPTION,
+		// Register/cancel callback. (Local only).
+		CALLBACK,
 		// To delete a pair in our pair-space.
 		PAIR_DELETE,
 		// To add a pair to our pair space.

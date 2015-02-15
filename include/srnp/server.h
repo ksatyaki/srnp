@@ -21,10 +21,12 @@
 #include <vector>
 #include <queue>
 
+#include <CommMessages.h>
 #include <MasterMessages.h>
 #include <MessageHeader.h>
 #include <Pair.h>
 #include <PairSpace.h>
+#include <PairQueue.h>
 
 using boost::asio::ip::tcp;
 
@@ -67,11 +69,15 @@ public:
 
 class ServerSession
 {
+	boost::mutex socket_write_mutex;
+
 	int& owner_;
 
 	PairSpace& pair_space_;
 
-	std::queue <Pair>& pair_queue_;
+	PairSpace& pair_space_subscribed_;
+
+	PairQueue& pair_queue_;
 
 	tcp::socket socket_;
 
@@ -91,20 +97,31 @@ class ServerSession
 
 	void handleReadHeader(const boost::system::error_code& e);
 
-	void handleReadData(const boost::system::error_code& e);
+	void handleReadPair(const boost::system::error_code& e);
+
+	void handleReadPairUpdate(const boost::system::error_code& e);
+
+	void handleReadSubscription(const boost::system::error_code& e);
+
+	void handleReadCallback(const boost::system::error_code& e);
 
 	void handleWrite(const boost::system::error_code& e);
+
+	void sendPairUpdateToClient(std::vector <Pair>::iterator iter);
+
+	bool sendDataToClient(const std::string& out_header_size, const std::string& out_header, const std::string& out_data);
 
 
 public:
 
 	static int session_counter;
 
-	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, std::queue <Pair>& pair_queue, int& owner);
+	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, PairSpace& pair_space_subscribed, PairQueue& pair_queue, int& owner);
 
 	~ServerSession ();
 
 	boost::system::error_code sendMasterMsgToOurClient(MasterMessage msg);
+
 	boost::system::error_code sendUpdateComponentsMsgToOurClient(UpdateComponents msg);
 
 	inline tcp::socket& socket() { return socket_; }
@@ -128,8 +145,6 @@ protected:
 
 	unsigned short port_;
 
-	std::queue <Pair>& pair_queue_;
-
 	boost::asio::io_service& io_service_;
 
 	boost::asio::deadline_timer heartbeat_timer_;
@@ -150,6 +165,8 @@ protected:
 
 	boost::posix_time::time_duration elapsed_time_;
 
+	PairQueue& pair_queue_;
+
 	PairSpace pair_space_;
 
 	PairSpace pair_space_subscribed_;
@@ -162,7 +179,9 @@ public:
 
 	inline void printPairSpace() { pair_space_.printPairSpace(); }
 
-	Server(boost::asio::io_service& service, std::string master_ip, std::string master_port, std::queue <Pair>& pair_queue, int desired_owner_id = -1);
+	inline void printSubscribedPairSpace() { pair_space_subscribed_.printPairSpace(); }
+
+	Server(boost::asio::io_service& service, std::string master_ip, std::string master_port, PairQueue& pair_queue, int desired_owner_id = -1);
 
 	void startSpinThreads();
 

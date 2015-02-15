@@ -1,67 +1,70 @@
 #include <iostream>
 #include <boost/asio.hpp>
 
-#include <srnp/client.h>
-#include <srnp/server.h>
-#include <srnp/srnp_print.h>
+#include <srnp_kernel.h>
 
-#include <Pair.h>
+class CallbackForTuple
+{
+public:
+	void callback_function(const srnp::Pair& p, int a)
+	{
+		SRNP_PRINT_DEBUG << "In callback!";
+		SRNP_PRINT_DEBUG << "Tuple: " << p;
+		SRNP_PRINT_DEBUG << "And custom value: " << a;
+	}
+};
 
-int main(int argn, char* args[])
+int main(int argn, char* args[], char* env[])
 {
 	srnp::srnp_print_setup(boost::log::trivial::debug);
 
-	if(argn < 4)
-	{
-		printf("\n<master_ip> <master_port> <owner_id>");
-		return 0;
-	}
-
-	boost::asio::io_service io_;
-	printf("\nstrats!\n");
-
-	std::queue <srnp::Pair> q;
-	int owner = 332;
-
-	std::string master_hub_ip = args[1];
-	std::string master_hub_port = args[2];
-	srnp::Server server (io_, master_hub_ip, master_hub_port, q, atoi(args[3]));
-
-	unsigned short port = server.getPort();
-
-	std::stringstream sport;
-	sport << port;
-
-	printf("\n********");
-	printf("\nINFO ALL");
-	printf("\n********");
-
-	printf("\nPORT INT: %d", server.getPort());
-	printf("\nPORT STR: %s", sport.str().c_str());
-	printf("\nOWNER: %d", server.owner());
-	srnp::Client cli (io_, "127.0.0.1", sport.str(), q);
-
+	srnp::initialize(argn, args, env);
 	sleep(1);
 
 	printf("\nGo!\n");
 
-	cli.setPair("simple", "test1");
-	cli.setPair("IronMaiden", "test2");
-	cli.setPair("simple.phooler", "test3");
-	cli.setPair(30, "Googler", "Sucker30");
-	cli.setPair(53, "Googler", "Sucker53");
+	srnp::setPair("simple", "test1");
+	srnp::setPair("IronMaiden", "test2");
+	srnp::setPair("simple.phooler", "test0");
+	srnp::setRemotePair(30, "Googler", "Sucker30");
+	srnp::setRemotePair(30, "Googler", "Sucker53");
 	sleep(1);
-	server.printPairSpace();
+	srnp::printSubscribedPairSpace();
+	srnp::printPairSpace();
 
-	cli.setPair("simple.phooler", "tests");
-	cli.setPair(30, "Googler", "Sucker2");
-	cli.setPair(53, "Googler", "Sucker2");
+	srnp::registerSubscription(30, "simple.phooler");
+	srnp::setPair("simple.phooler", "test1");
 	sleep(1);
-	server.printPairSpace();
+	srnp::printSubscribedPairSpace();
+	srnp::printPairSpace();
 
+	srnp::setPair("simple.phooler", "test2");
+	CallbackForTuple callback_object;
+	int value = 223423;
+	srnp::registerCallback(30, "simple.phooler", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1, value));
+	sleep(2);
+	srnp::printPairSpace();
+	srnp::printSubscribedPairSpace();
+	srnp::setPair("simple.phooler", "test3");
+	srnp::setPair("simple.phooler", "test4");
+	srnp::setPair("simple.phooler", "test5");
 
-	printf("\nAll over.");
-	io_.run();
+	sleep(1);
+
+	srnp::cancelSubscription(30, "simple.phooler");
+
+	sleep(1);
+	srnp::setPair("simple.phooler", "test6");
+
+	sleep(1);
+	srnp::printPairSpace();
+	srnp::printSubscribedPairSpace();
+
+	int i = 20;
+	while(i--)
+		usleep(500000);
+
+	srnp::shutdown();
 
 	return 0;
 }

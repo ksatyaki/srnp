@@ -11,6 +11,8 @@
 #include <Pair.h>
 #include <boost/shared_ptr.hpp>
 
+#include <srnp/srnp_print.h>
+
 namespace srnp
 {
 
@@ -36,14 +38,39 @@ public:
 	}
 
 	/**
-	 * Get the pair as a boost::shared_ptr with the key.
+	 * Get the pair iterator with the key. Used only in local pair space.
 	 */
 	std::vector <Pair>::iterator getPairIteratorWithKey(const std::string& key);
+
+	/**
+	 * Get the pair iterator with (owner, key). Used only in subscribed pair space.
+	 */
+	std::vector <Pair>::iterator getPairIteratorWithOwnerAndKey(const int& owner, const std::string& key);
 
 	/**
 	 * Add a pair or update a pair in the pair-space.
 	 */
 	void addPair(const Pair& pair);
+
+	/**
+	 * Add subscription. If there is no such tuple, a new tuple is added and a subscription is added on that.
+	 */
+	void addSubscription(const int& owner, const std::string& key, const int& subscriber);
+
+	/**
+	 * Remove subscription.
+	 */
+	void removeSubscription(const int& owner, const std::string& key, const int& subscriber);
+
+	/**
+	 * Remove callback.
+	 */
+	void removeCallback(const int& owner, const std::string& key);
+
+	/**
+	 * Add a callback.
+	 */
+	void addCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn);
 
 	/**
 	 * Print the entire pair-space.

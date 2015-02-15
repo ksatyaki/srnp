@@ -44,6 +44,8 @@ protected:
 
 public:
 
+	typedef boost::function <void(const Pair&)> CallbackFunction;
+
 	/**
 	 * A list of owner ids subscribed to this pair.
 	 */
@@ -53,14 +55,14 @@ public:
 	 * A callback.
 	 * There can be only one.
 	 */
-	boost::function <const Pair()> callback_;
+	CallbackFunction callback_;
 
 	/**
 	 * Convenience typedef.
 	 */
 	typedef boost::shared_ptr <Pair> Ptr;
 
-	Pair (const std::string& key, const std::string& value, const int& owner) :
+	Pair ( const int& owner, const std::string& key, const std::string& value) :
 		pair_(std::pair <std::string, std::string> (key, value)),
 		owner_ (owner)
 	{

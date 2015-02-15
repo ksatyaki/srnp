@@ -19,9 +19,11 @@
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_iarchive.hpp>
 
+#include <CommMessages.h>
 #include <MessageHeader.h>
 #include <MasterMessages.h>
 #include <Pair.h>
+#include <PairQueue.h>
 
 #ifdef WIN32
 #include <windows.h>
@@ -76,7 +78,7 @@ protected:
 	boost::asio::deadline_timer reconnect_timer_;
 
 	/**
-	 * A Resolver to resolve requests/queries from the client.
+	 * A Resolver to resolve requests/queries.
 	 */
 	tcp::resolver resolver_;
 
@@ -92,8 +94,9 @@ protected:
 
 	/**
 	 * Handle MasterMessage and UpdateComponents messages from Server.
+	 * Pair messages also arrive here. We send it to the corresponding server.
 	 */
-	void handleMMandUCMsgs (Client* client, const boost::system::error_code& error);
+	void handleMMandUCandPairMsgs (Client* client, const boost::system::error_code& error);
 
 	/**
 	 * This function is called when reconnection should be attempted.
@@ -103,7 +106,14 @@ protected:
 
 	Client* client_;
 
+	bool setPairUpdate(const Pair& pair, Client* client);
+
 public:
+
+	/**
+	 * Only one guy should write to this socket at any time.
+	 */
+	boost::mutex server_write_mutex;
 
 	/**
 	 * Sends the message to the server. Async operation.
@@ -118,6 +128,8 @@ class Client
 
 protected:
 
+	boost::mutex socket_write_mutex;
+
 	friend class ClientSession;
 
 	int owner_id_;
@@ -128,17 +140,22 @@ protected:
 
 	boost::posix_time::time_duration elapsed_time_;
 
-	std::queue <Pair>& pair_queue_;
+	PairQueue& pair_queue_;
 
 	std::map <int, ClientSession*> sessions_map_;
 
 public:
 
 	bool setPair(const std::string& key, const std::string& value);
-
 	bool setPair(const int& owner, const std::string& key, const std::string& value);
 
-	Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, std::queue <Pair>& pair_queue);
+	bool registerCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn);
+	bool cancelCallback(const int& owner, const std::string& key);
+
+	void registerSubscription (const int& owner, const std::string& key);
+	void cancelSubscription (const int& owner, const std::string& key);
+
+	Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairQueue& pair_queue);
 
 	virtual ~Client();
 };
