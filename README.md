@@ -1,14 +1,14 @@
-=====================================
- SRNP - Simply Rewritten New PEIS
-=====================================
+
+##SRNP - Simply Rewritten New PEIS
+
 
 SRNP is what started as a hobby project.
 Currently a few of the peiskernel functions are available. 
 It's not even an alpha version now.
 
-====================
-Functions available
-====================
+
+###Functions available
+
 
 peiskmt_initialize 				=== srnp::initialize
 peiskmt_subscribe 				=== srnp::registerSubscriber
@@ -21,9 +21,9 @@ It is entirely based on the PEIS Kernel by Mathias Broxwall.
 
 https://github.com/mbrx/peisecology
 
-=============
-What is SRNP?
-=============
+
+###What is SRNP?
+
 It's a complete recreation of the PEIS Kernel in C++ using Boost for a large part.
 It uses all principles from the PEIS Kernel - but it uses no source code from the
 original PEIS written in C. The concepts were programmed as I understood them.
