@@ -10,11 +10,11 @@ It's not even an alpha version now.
 ###Functions available
 
 
-	i. peiskmt_initialize 				=== srnp::initialize
-	ii. peiskmt_subscribe 				=== srnp::registerSubscriber
-	iii. peiskmt_registerTupleCallback 	=== srnp::registerCallback
-	iv. peiskmt_setStringTuple 			=== srnp::setPair
-	v. peiskmt_setRemoteStringTuple 	=== srnp::setRemotePair
+	 (i) 	peiskmt_initialize 				=== srnp::initialize
+	(ii) 	peiskmt_subscribe 				=== srnp::registerSubscriber
+   (iii) 	peiskmt_registerTupleCallback 	=== srnp::registerCallback
+	(iv) 	peiskmt_setStringTuple 			=== srnp::setPair
+	 (v) 	peiskmt_setRemoteStringTuple 	=== srnp::setRemotePair
 
 
 It is entirely based on the PEIS Kernel by Mathias Broxwall.
