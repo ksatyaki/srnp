@@ -19,11 +19,11 @@
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_iarchive.hpp>
 
-#include <CommMessages.h>
-#include <MessageHeader.h>
-#include <MasterMessages.h>
-#include <Pair.h>
-#include <PairQueue.h>
+#include <srnp/msgs/CommMessages.h>
+#include <srnp/msgs/MessageHeader.h>
+#include <srnp/msgs/MasterMessages.h>
+#include <srnp/Pair.h>
+#include <srnp/PairQueue.h>
 
 #ifdef WIN32
 #include <windows.h>
@@ -108,6 +108,8 @@ protected:
 
 	bool setPairUpdate(const Pair& pair, Client* client);
 
+	void sendSubscriptionMsgs(Client* client);
+
 public:
 
 	/**
@@ -128,6 +130,8 @@ class Client
 
 protected:
 
+	std::vector <std::string> subscribed_tuples_;
+
 	boost::mutex socket_write_mutex;
 
 	friend class ClientSession;
@@ -147,13 +151,12 @@ protected:
 public:
 
 	bool setPair(const std::string& key, const std::string& value);
-	bool setPair(const int& owner, const std::string& key, const std::string& value);
 
-	bool registerCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn);
-	bool cancelCallback(const int& owner, const std::string& key);
+	bool registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
+	bool cancelCallback(const std::string& key);
 
-	void registerSubscription (const int& owner, const std::string& key);
-	void cancelSubscription (const int& owner, const std::string& key);
+	void registerSubscription (const std::string& key);
+	void cancelSubscription (const std::string& key);
 
 	Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairQueue& pair_queue);
 

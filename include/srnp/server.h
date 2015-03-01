@@ -21,12 +21,12 @@
 #include <vector>
 #include <queue>
 
-#include <CommMessages.h>
-#include <MasterMessages.h>
-#include <MessageHeader.h>
-#include <Pair.h>
-#include <PairSpace.h>
-#include <PairQueue.h>
+#include <srnp/msgs/CommMessages.h>
+#include <srnp/msgs/MasterMessages.h>
+#include <srnp/msgs/MessageHeader.h>
+#include <srnp/Pair.h>
+#include <srnp/PairSpace.h>
+#include <srnp/PairQueue.h>
 
 using boost::asio::ip::tcp;
 
@@ -75,8 +75,6 @@ class ServerSession
 
 	PairSpace& pair_space_;
 
-	PairSpace& pair_space_subscribed_;
-
 	PairQueue& pair_queue_;
 
 	tcp::socket socket_;
@@ -97,8 +95,6 @@ class ServerSession
 
 	void handleReadHeader(const boost::system::error_code& e);
 
-	void handleReadPair(const boost::system::error_code& e);
-
 	void handleReadPairUpdate(const boost::system::error_code& e);
 
 	void handleReadSubscription(const boost::system::error_code& e);
@@ -116,7 +112,7 @@ public:
 
 	static int session_counter;
 
-	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, PairSpace& pair_space_subscribed, PairQueue& pair_queue, int& owner);
+	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, PairQueue& pair_queue, int& owner);
 
 	~ServerSession ();
 
@@ -169,8 +165,6 @@ protected:
 
 	PairSpace pair_space_;
 
-	PairSpace pair_space_subscribed_;
-
 public:
 
 	inline unsigned short getPort() { return port_; };
@@ -178,8 +172,6 @@ public:
 	inline int& owner() { return owner_id_; }
 
 	inline void printPairSpace() { pair_space_.printPairSpace(); }
-
-	inline void printSubscribedPairSpace() { pair_space_subscribed_.printPairSpace(); }
 
 	Server(boost::asio::io_service& service, std::string master_ip, std::string master_port, PairQueue& pair_queue, int desired_owner_id = -1);
 

@@ -22,8 +22,23 @@ namespace srnp
 BOOST_LOG_ATTRIBUTE_KEYWORD(severity, "Severity", boost::log::trivial::severity_level)
 BOOST_LOG_ATTRIBUTE_KEYWORD(timestamp, "TimeStamp", boost::posix_time::ptime)
 
-void srnp_print_setup(boost::log::trivial::severity_level level)
+void srnp_print_setup(const std::string& str_level = "")
 {
+	boost::log::trivial::severity_level level;
+
+	if(str_level.compare ("debug") == 0 || str_level.compare ("DEBUG") == 0)
+		level = boost::log::trivial::debug;
+	else if(str_level.compare ("fatal") == 0 || str_level.compare ("FATAL") == 0)
+		level = boost::log::trivial::fatal;
+	else if(str_level.compare ("error") == 0 || str_level.compare ("ERROR") == 0)
+		level = boost::log::trivial::error;
+	else if(str_level.compare ("trace") == 0 || str_level.compare ("TRACE") == 0)
+		level = boost::log::trivial::trace;
+	else if(str_level.compare ("warning") == 0 || str_level.compare ("WARNING") == 0)
+		level = boost::log::trivial::warning;
+	else
+		level = boost::log::trivial::info;
+
 	boost::log::add_common_attributes();
 	boost::shared_ptr<boost::log::core> core = boost::log::core::get();
 

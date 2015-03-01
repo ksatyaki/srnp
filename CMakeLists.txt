@@ -11,8 +11,13 @@ find_package (Boost REQUIRED
     date_time
     log
     log_setup
+    python
 )
 
+# BOOST PYTHON
+include_directories(/usr/include/python2.7)
+
+# Project Stuff
 include_directories (include ${Boost_INCLUDE_DIRS})
 
 # Pair Space
@@ -35,8 +40,17 @@ target_link_libraries (master_hub ${Boost_LIBRARIES})
 add_library (srnp_kernel SHARED src/srnp_kernel.cpp)
 target_link_libraries (srnp_kernel srnp_server srnp_client pair_space ${Boost_LIBRARIES})
 
+# Python Wrapper
+add_library (srnpy SHARED src/srnp_python.cpp)
+target_link_libraries (srnpy srnp_kernel ${Boost_LIBRARIES})
+
+set_target_properties(srnpy PROPERTIES PREFIX "")
+
 # Test
-add_executable (simple src/simple.cpp)
+add_executable (simple src/single_tests/simple.cpp)
 target_link_libraries (simple srnp_kernel)
+
+add_executable (simple2 src/single_tests/simple2.cpp)
+target_link_libraries (simple2 srnp_kernel)
 
 

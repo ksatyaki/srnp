@@ -24,7 +24,7 @@
 #include <vector>
 #include <queue>
 
-#include <MasterMessages.h>
+#include <srnp/msgs/MasterMessages.h>
 
 using boost::asio::ip::tcp;
 

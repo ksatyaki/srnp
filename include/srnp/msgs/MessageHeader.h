@@ -26,8 +26,6 @@ struct MessageHeader
 		CALLBACK,
 		// To delete a pair in our pair-space.
 		PAIR_DELETE,
-		// To add a pair to our pair space.
-		PAIR,
 		// To pop a pair from the queue and add it to our pair space. (Local only).
 		PAIR_NOCOPY,
 		// To update a pair on the subscribed pair-space.

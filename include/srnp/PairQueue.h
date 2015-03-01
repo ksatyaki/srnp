@@ -8,8 +8,8 @@
 #ifndef PAIRQUEUE_H_
 #define PAIRQUEUE_H_
 
-#include <Pair.h>
-#include <CommMessages.h>
+#include <srnp/Pair.h>
+#include <srnp/msgs/CommMessages.h>
 #include <queue>
 #include <boost/thread/mutex.hpp>
 

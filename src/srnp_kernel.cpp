@@ -5,7 +5,7 @@
  *      Author: ace
  */
 
-#include <srnp_kernel.h>
+#include <srnp/srnp_kernel.h>
 
 namespace srnp
 {
@@ -15,6 +15,24 @@ boost::shared_ptr <Server> KernelInstance::server_instance_;
 boost::shared_ptr <Client> KernelInstance::client_instance_;
 boost::shared_ptr <PairQueue> KernelInstance::pair_queue_;
 boost::shared_ptr <boost::asio::io_service> KernelInstance::io_service_;
+
+void initialize_py (const std::string& ip, const std::string& port)
+{
+	int argn = 1;
+	char* args[] = { "SRNPy" };
+
+	char *env[2];
+	env[0] = new char[ip.size() + 1];
+	env[1] = new char[port.size() + 1];
+
+	strcpy(env[0], ip.c_str());
+	strcpy(env[1], port.c_str());
+
+	initialize(argn, args, env);
+
+	delete env[0];
+	delete env[1];
+}
 
 void initialize(int argn, char* args[], char* env[])
 {
@@ -70,39 +88,29 @@ void setPair(const std::string& key, const std::string& value)
 	KernelInstance::client_instance_->setPair(key, value);
 }
 
-void setRemotePair(const int& owner, const std::string& key, const std::string& value)
-{
-	KernelInstance::client_instance_->setPair(owner, key, value);
-}
-
 void printPairSpace()
 {
 	KernelInstance::server_instance_->printPairSpace();
 }
 
-void printSubscribedPairSpace()
+void registerCallback(const std::string& key, Pair::CallbackFunction callback_fn)
 {
-	KernelInstance::server_instance_->printSubscribedPairSpace();
+	KernelInstance::client_instance_->registerCallback(key, callback_fn);
 }
 
-void registerCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn)
+void cancelCallback(const std::string& key)
 {
-	KernelInstance::client_instance_->registerCallback(owner, key, callback_fn);
+	KernelInstance::client_instance_->cancelCallback(key);
 }
 
-void cancelCallback(const int& owner, const std::string& key)
+void registerSubscription(const std::string& key)
 {
-	KernelInstance::client_instance_->cancelCallback(owner, key);
+	KernelInstance::client_instance_->registerSubscription(key);
 }
 
-void registerSubscription(const int& owner, const std::string& key)
+void cancelSubscription(const std::string& key)
 {
-	KernelInstance::client_instance_->registerSubscription(owner, key);
-}
-
-void cancelSubscription(const int& owner, const std::string& key)
-{
-	KernelInstance::client_instance_->cancelSubscription(owner, key);
+	KernelInstance::client_instance_->cancelSubscription(key);
 }
 
 int getOwnerID ()

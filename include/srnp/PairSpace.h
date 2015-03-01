@@ -8,7 +8,7 @@
 #ifndef PAIRSPACE_H_
 #define PAIRSPACE_H_
 
-#include <Pair.h>
+#include <srnp/Pair.h>
 #include <boost/shared_ptr.hpp>
 
 #include <srnp/srnp_print.h>
@@ -43,11 +43,6 @@ public:
 	std::vector <Pair>::iterator getPairIteratorWithKey(const std::string& key);
 
 	/**
-	 * Get the pair iterator with (owner, key). Used only in subscribed pair space.
-	 */
-	std::vector <Pair>::iterator getPairIteratorWithOwnerAndKey(const int& owner, const std::string& key);
-
-	/**
 	 * Add a pair or update a pair in the pair-space.
 	 */
 	void addPair(const Pair& pair);
@@ -55,22 +50,22 @@ public:
 	/**
 	 * Add subscription. If there is no such tuple, a new tuple is added and a subscription is added on that.
 	 */
-	void addSubscription(const int& owner, const std::string& key, const int& subscriber);
+	void addSubscription(const std::string& key, const int& subscriber);
 
 	/**
 	 * Remove subscription.
 	 */
-	void removeSubscription(const int& owner, const std::string& key, const int& subscriber);
+	void removeSubscription(const std::string& key, const int& subscriber);
 
 	/**
 	 * Remove callback.
 	 */
-	void removeCallback(const int& owner, const std::string& key);
+	void removeCallback(const std::string& key);
 
 	/**
 	 * Add a callback.
 	 */
-	void addCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn);
+	void addCallback(const std::string& key, Pair::CallbackFunction callback_fn);
 
 	/**
 	 * Print the entire pair-space.
