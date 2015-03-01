@@ -1,4 +1,3 @@
-
 ##SRNP - Simply Rewritten New PEIS
 
 
@@ -11,8 +10,8 @@ It's not even an alpha version now.
 
 
 	 (i) 	peiskmt_initialize 				=== srnp::initialize
-	(ii) 	peiskmt_subscribe 				=== srnp::registerSubscriber
-   (iii) 	peiskmt_registerTupleCallback 	=== srnp::registerCallback
+	(ii) 	peiskmt_subscribe 				=== srnp::registerSubscription
+       (iii) 	peiskmt_registerTupleCallback 	=== srnp::registerCallback
 	(iv) 	peiskmt_setStringTuple 			=== srnp::setPair
 	 (v) 	peiskmt_setRemoteStringTuple 	=== srnp::setRemotePair
 
@@ -34,4 +33,3 @@ I hence implemented the protocol, etc., all by myself.
 I would love to have a PairView, a rewritten TupleView. I am not sure how soon, though.
 
 This README was last updated on 16/02/2015, when SRNP was 9 days old.
-
