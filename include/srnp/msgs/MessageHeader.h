@@ -1,9 +1,21 @@
 /*
- * MessageHeader.h
- *
- *  Created on: Jan 13, 2015
- *      Author: ace
- */
+  MessageHeader.h - A Header to use with all messages.
+  
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
 
 #ifndef MESSAGE_HEADER_H_
 #define MESSAGE_HEADER_H_
@@ -28,8 +40,10 @@ struct MessageHeader
 		PAIR_DELETE,
 		// To pop a pair from the queue and add it to our pair space. (Local only).
 		PAIR_NOCOPY,
-		// To update a pair on the subscribed pair-space.
-		PAIR_UPDATE
+		// To update a pair.
+		PAIR_UPDATE,
+		// To update a pair only to one guy. 
+		PAIR_UPDATE_2
 	};
 
 	/**
@@ -58,11 +72,17 @@ struct MessageHeader
 	 */
 	uint8_t type;
 
+	/**
+	 * Only used in the case of PAIR_UPDATE_2
+	 */
+	int subscriber__;
+
 	template <typename OutputArchive>
 	void serialize (OutputArchive& o_archive, const int version)
 	{
 		o_archive & length;
 		o_archive & type;
+		o_archive & subscriber__;
 	}
 
 	MessageHeader(): length(0), type(INVALID) { }

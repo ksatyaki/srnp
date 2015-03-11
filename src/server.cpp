@@ -1,10 +1,21 @@
 /*
- * server.cpp
- *
- *  Created on: Jan 13, 2015
- *      Author: ace
- */
+  server.cpp
+  
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
 #include "srnp/server.h"
 
 namespace srnp
@@ -165,11 +176,12 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 int ServerSession::session_counter = 0;
 
 ServerSession::ServerSession (boost::asio::io_service& service, PairSpace& pair_space,
-		PairQueue& pair_queue, int& owner) :
+							  PairQueue& pair_queue, int& owner, Server* server) :
 		socket_ (service),
 		pair_queue_ (pair_queue),
 		pair_space_ (pair_space),
-		owner_ (owner)
+		owner_ (owner),
+		server_ (server)
 {
 
 
@@ -232,19 +244,18 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 			// Redundant. But no loss.
 			tuple.setOwner(owner_);
 
+			//pair_space_.mutexLock();
+			boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
 			pair_space_.addPair(tuple);
+			//pair_space_.mutexUnlock();
 
 			std::vector <Pair>::iterator iter = pair_space_.getPairIteratorWithKey(tuple.getKey());
 			sendPairUpdateToClient(iter);
 			if(iter->callback_ != NULL)
+			{
+				//SRNP_PRINT_DEBUG << "Making a simple callback";
 				iter->callback_(*iter);
-
-			// Added new pair!
-			//SRNP_PRINT_TRACE << "[Server::handleReadHeader]: Added new pair!";
-			std::pair<std::string, std::string> tuple_pair = tuple.getPair();
-			//SRNP_PRINT_DEBUG << "Pair from our client: " << tuple_pair.first << ", " << tuple_pair.second << ", " << tuple.getOwner();
-
-			// Send message to client.
+			}
 
 			startReading();
 		}
@@ -269,7 +280,7 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 
 }
 
-void ServerSession::sendPairUpdateToClient(std::vector <Pair>::iterator iter)
+void ServerSession::sendPairUpdateToClient(std::vector <Pair>::const_iterator iter, int sub_only_one)
 {
 	if(iter->subscribers_.size() != 0)
 	{
@@ -278,6 +289,14 @@ void ServerSession::sendPairUpdateToClient(std::vector <Pair>::iterator iter)
 
 		// Setup the message header.
 		srnp::MessageHeader header (0, srnp::MessageHeader::PAIR_UPDATE);
+
+		if(sub_only_one != -1)
+		{
+			//SRNP_PRINT_DEBUG << "Setting header to special value...";
+			header.type = MessageHeader::PAIR_UPDATE_2;
+			header.subscriber__ = sub_only_one;
+		}
+		
 		// Serialize the data first so we know how large it is.
 		std::ostringstream header_archive_stream;
 		boost::archive::text_oarchive header_archive(header_archive_stream);
@@ -300,12 +319,16 @@ void ServerSession::sendPairUpdateToClient(std::vector <Pair>::iterator iter)
 		// just pushed. And on the receiving end, our member will be popped.
 		boost::mutex::scoped_lock scoped_mutex_lock(pair_queue_.pair_update_queue_mutex);
 		pair_queue_.pair_update_queue.push(*iter);
+		//SRNP_PRINT_DEBUG << "Queue push pui - pair update";
 
 		//SRNP_PRINT_DEBUG << "Writing Data To Client.";
 
 		boost::mutex::scoped_lock write_lock (socket_write_mutex);
 		this->sendDataToClient (out_header_size_, out_header_, out_data_);
+		//SRNP_PRINT_DEBUG << "SEND DATA pui - pair update";
 	}
+	//else
+	//SRNP_PRINT_DEBUG << "No Subscribers...";
 }
 
 bool ServerSession::sendDataToClient(const std::string& out_header_size, const std::string& out_header, const std::string& out_data)
@@ -338,13 +361,22 @@ void ServerSession::handleReadCallback(const boost::system::error_code& e)
 		boost::archive::text_iarchive data_archive(data_stream);
 		SubscriptionORCallback subscriptionORCallbackMsg;
 		data_archive >> subscriptionORCallbackMsg;
+
+		// PAIR_SPACE_MUTEX_LOCK
+		//pair_space_.mutexLock();
+		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
 		//SRNP_PRINT_DEBUG << "We got a Callback Request: ";
 
 		//SRNP_PRINT_DEBUG << "Registering/cancelling a callback on a pair.";
 		if(subscriptionORCallbackMsg.registering)
 		{
 			pair_queue_.callback_queue_mutex.lock();
-			pair_space_.addCallback(subscriptionORCallbackMsg.key, pair_queue_.callback_queue.front());
+			
+			if(subscriptionORCallbackMsg.key.compare("*") == 0)
+				pair_space_.addCallbackToAll(pair_queue_.callback_queue.front());
+			else
+				pair_space_.addCallback(subscriptionORCallbackMsg.key, pair_queue_.callback_queue.front());
+			
 			pair_queue_.callback_queue.pop();
 			pair_queue_.callback_queue_mutex.unlock();
 		}
@@ -352,6 +384,10 @@ void ServerSession::handleReadCallback(const boost::system::error_code& e)
 		{
 			pair_space_.removeCallback(subscriptionORCallbackMsg.key);
 		}
+
+
+		// PAIR_SPACE_MUTEX_UNLOCK
+		//pair_space_.mutexUnlock();
 
 		startReading();
 	}
@@ -373,15 +409,50 @@ void ServerSession::handleReadSubscription(const boost::system::error_code& e)
 		data_archive >> subscriptionORCallbackMsg;
 		//SRNP_PRINT_DEBUG << "We got a subscription request: ";
 
-
+		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
+		
 		//SRNP_PRINT_DEBUG << "Registering/cancelling a subscription on our own sweet pair.";
 		if(subscriptionORCallbackMsg.registering)
 		{
-			pair_space_.addSubscription(subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
+			if(subscriptionORCallbackMsg.key.compare("*") == 0)
+			{
+				//pair_space_.mutexLock();
+				pair_space_.addSubscriptionToAll(subscriptionORCallbackMsg.subscriber);
+				//pair_space_.mutexUnlock();
+				
+				const std::vector <Pair>& all_keys = pair_space_.getAllPairs();
+				
+				for(std::vector <Pair>::const_iterator iter = all_keys.begin(); iter != all_keys.end(); iter++)
+				{
+					//SRNP_PRINT_DEBUG << "Sending a pair to subscriber fellow...";
+					if(iter->getOwner() == this->owner_)
+					{
+						//SRNP_PRINT_DEBUG << "Subscriber: " << subscriptionORCallbackMsg.subscriber;
+						this->server_->my_client_session()->sendPairUpdateToClient(iter, subscriptionORCallbackMsg.subscriber);
+					}
+				}
+			}
+			else
+			{
+				//pair_space_.mutexLock();
+				pair_space_.addSubscription(subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
+				//pair_space_.mutexUnlock();
+				
+				//SRNP_PRINT_DEBUG << "CORALLARY WORKS!";
+				this->server_->my_client_session()->sendPairUpdateToClient(pair_space_.getPairIteratorWithKey(subscriptionORCallbackMsg.key), subscriptionORCallbackMsg.subscriber);
+			}
+				
 		}
 		else
 		{
-			pair_space_.removeSubscription(subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
+			//pair_space_.mutexLock();
+			
+			if(subscriptionORCallbackMsg.key.compare("*") == 0)
+				pair_space_.removeSubscriptionToAll(subscriptionORCallbackMsg.subscriber);
+			else
+				pair_space_.removeSubscription(subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
+
+			//pair_space_.mutexUnlock();
 		}
 
 		startReading();
@@ -403,9 +474,13 @@ void ServerSession::handleReadPairUpdate (const boost::system::error_code& e)
 
 		Pair tuple;
 		data_archive >> tuple;
-		SRNP_PRINT_DEBUG << "We got a PairUpdate: " << tuple;
-		pair_space_.addPair(tuple);
+		//SRNP_PRINT_DEBUG << "We got a PairUpdate: " << tuple;
 
+		//pair_space_.mutexLock();
+		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
+		pair_space_.addPair(tuple);
+		//pair_space_.mutexUnlock();
+		
 		std::vector <Pair>::iterator iter = pair_space_.getPairIteratorWithKey(tuple.getKey());
 		if(iter->callback_ != NULL)
 		{
@@ -486,6 +561,15 @@ boost::system::error_code ServerSession::sendMasterMsgToOurClient(MasterMessage 
 
 boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(UpdateComponents msg)
 {
+	// First Remove all subscriptions from this fellow.
+	if(msg.operation == UpdateComponents::REMOVE)
+	{
+		//pair_space_.mutexLock();
+		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
+		pair_space_.removeSubscriptionToAll(msg.component.owner);
+		//pair_space_.mutexUnlock();
+	}
+	
 	std::ostringstream msg_stream;
 	boost::archive::text_oarchive msg_archive(msg_stream);
 	msg_archive << msg;
@@ -536,7 +620,7 @@ Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std
 {
 	port_ = acceptor_.local_endpoint().port();
 	if(!my_client_session_)
-		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_queue_, owner_id_));
+		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_queue_, owner_id_, this));
 
 	SRNP_PRINT_INFO << "Here we are folks. St. Alfonso's pancake breakfast!";
 	// Register a callback for accepting new connections.
@@ -565,7 +649,7 @@ void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>
 		my_master_link_->sendMMToOurClientAndWaitForUCMsg();
 		client_session->startReading();
 		ServerSession::session_counter++;
-		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_);
+		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_, this);
 		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
 	}
 	else
@@ -584,7 +668,7 @@ void Server::handleAcceptedConnection (ServerSession* new_session, const boost::
 				//<< ":" << new_session->socket().remote_endpoint().port();
 		new_session->startReading();
 		ServerSession::session_counter++;
-		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_);
+		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_, this);
 		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
 	}
 	else

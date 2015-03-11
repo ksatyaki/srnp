@@ -1,9 +1,22 @@
 /*
- * server.h
- *
- *  Created on: Jan 13, 2015
- *      Author: ace
- */
+  server.h - Server sits behind the client and takes care of async-
+  things.
+  
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
 
 #ifndef SRNP_SERVER_H_
 #define SRNP_SERVER_H_
@@ -69,6 +82,8 @@ public:
 
 class ServerSession
 {
+	Server* server_;
+	
 	boost::mutex socket_write_mutex;
 
 	int& owner_;
@@ -103,7 +118,7 @@ class ServerSession
 
 	void handleWrite(const boost::system::error_code& e);
 
-	void sendPairUpdateToClient(std::vector <Pair>::iterator iter);
+	void sendPairUpdateToClient(std::vector <Pair>::const_iterator iter, int sub_only_one = -1);
 
 	bool sendDataToClient(const std::string& out_header_size, const std::string& out_header, const std::string& out_data);
 
@@ -112,7 +127,7 @@ public:
 
 	static int session_counter;
 
-	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, PairQueue& pair_queue, int& owner);
+	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, PairQueue& pair_queue, int& owner, Server* server);
 
 	~ServerSession ();
 
@@ -170,6 +185,8 @@ public:
 	inline unsigned short getPort() { return port_; };
 
 	inline int& owner() { return owner_id_; }
+
+	inline ServerSession* my_client_session() { return my_client_session_.get(); };
 
 	inline void printPairSpace() { pair_space_.printPairSpace(); }
 

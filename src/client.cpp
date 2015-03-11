@@ -1,10 +1,21 @@
 /*
- * client.cpp
- *
- *  Created on: Feb 8, 2015
- *      Author: ace
- */
+  client.cpp - implementation of classes and functions in client.h
+  
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
 #include <srnp/client.h>
 
 namespace srnp {
@@ -34,7 +45,7 @@ void ClientSession::handleConnection(Client* client, const boost::system::error_
 	}
 	else
 	{
-		SRNP_PRINT_DEBUG << "Not connected to host. Will try again in 10 seconds.";
+		SRNP_PRINT_WARNING << "Not connected to host. Will try again in 10 seconds.";
 		reconnect_timer_.expires_from_now(boost::posix_time::seconds(RECONNECT_TIMEOUT));
 		reconnect_timer_.async_wait(boost::bind(&ClientSession::reconnectTimerCallback, this, client));
 	}
@@ -45,7 +56,7 @@ void ClientSession::sendSubscriptionMsgs(Client* client)
 {
 	for(std::vector<std::string>::iterator iter = client->subscribed_tuples_.begin(); iter!= client->subscribed_tuples_.end(); iter++)
 	{
-		SRNP_PRINT_DEBUG << "SENDING SUBSCRIPTION MSG: ";
+		//SRNP_PRINT_DEBUG << "SENDING SUBSCRIPTION MSG: ";
 		SubscriptionORCallback subs_msg;
 
 		subs_msg.key = *iter;
@@ -105,6 +116,9 @@ void ClientSession::handleMMandUCandPairMsgs(Client* client, const boost::system
 
 		in_data_.resize(header.length);
 
+		//std::string output = header.type == MessageHeader::PAIR_UPDATE ? "PU" : "MM or UC";
+		//SRNP_PRINT_DEBUG << "SRNP SERVER SAYS: %s" << output;
+
 		if(header.length != 0)
 		{
 			boost::asio::read(*socket_, boost::asio::buffer(in_data_), sync_receive_error);
@@ -157,14 +171,23 @@ void ClientSession::handleMMandUCandPairMsgs(Client* client, const boost::system
 				delete session_to_delete;
 			}
 		}
-		else if (header.type == MessageHeader::PAIR_UPDATE)
+		else if (header.type == MessageHeader::PAIR_UPDATE || header.type == MessageHeader::PAIR_UPDATE_2)
 		{
 			client->pair_queue_.pair_update_queue_mutex.lock();
 			Pair P = client->pair_queue_.pair_update_queue.front();
 			client->pair_queue_.pair_update_queue.pop();
 			client->pair_queue_.pair_update_queue_mutex.unlock();
 
-			setPairUpdate(P, client);
+			int only_one = -1;
+			if(header.type == MessageHeader::PAIR_UPDATE_2)
+			{
+				//SRNP_PRINT_DEBUG << "PAIR_UPDATE_2 MSG...";
+				only_one = header.subscriber__;
+			}
+			//else
+			//	SRNP_PRINT_DEBUG << "Normal PairUpdate Msg...";
+			
+			setPairUpdate(P, client, only_one);
 		}
 		else
 		{
@@ -272,43 +295,68 @@ bool Client::setPair(const std::string& key, const std::string& value)
 
 }
 
-bool ClientSession::setPairUpdate(const Pair& pair, Client* client)
+bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscriber_only_one)
 {
+	//SRNP_PRINT_DEBUG << "In setPairUpdate Now... with " << pair.subscribers_.size() << " no of subsribers --- oo: "<< subscriber_only_one;
+	
+	std::ostringstream data_stream;
+	boost::archive::text_oarchive data_archive (data_stream);
+	data_archive << pair;
+	std::string out_data_ = data_stream.str();
+	// END
+
+	// Setup the message header.
+	srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::PAIR_UPDATE);
+	// Serialize the data first so we know how large it is.
+	std::ostringstream header_archive_stream;
+	boost::archive::text_oarchive header_archive(header_archive_stream);
+	header_archive << header;
+	std::string out_header_ = header_archive_stream.str();
+	// END
+
+	// Prepare header length
+	std::ostringstream header_size_stream;
+	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
+	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+	{
+		SRNP_PRINT_FATAL << "[setPairUpdate]: Couldn't set stream size.";
+	}
+	std::string  out_header_size_ = header_size_stream.str();
+
+	//SRNP_PRINT_DEBUG << "Writing Pair Data To OTHER Server/servers.";
+
+	if(subscriber_only_one != -1)
+	{
+		//SRNP_PRINT_DEBUG << "ONE ONLY MAN!!!!";
+		if(client->sessions_map_.find(subscriber_only_one) != client->sessions_map_.end())
+		{
+			boost::mutex::scoped_lock write_lock(client->sessions_map_[subscriber_only_one]->server_write_mutex);
+			client->sessions_map_[subscriber_only_one]->sendDataToServer(out_header_size_, out_header_, out_data_);
+		}
+		else
+		{
+			SRNP_PRINT_FATAL << "A subscriber cound't be found.";
+		}
+
+		return true;
+	}
+
+	// Obvious else...
 	for (std::vector <int>::const_iterator it = pair.subscribers_.begin(); it != pair.subscribers_.end(); it ++)
 	{
 		if(client->sessions_map_.find(*it) != client->sessions_map_.end())
 		{
-			std::ostringstream data_stream;
-			boost::archive::text_oarchive data_archive (data_stream);
-			data_archive << pair;
-			std::string out_data_ = data_stream.str();
-			// END
-
-			// Setup the message header.
-			srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::PAIR_UPDATE);
-			// Serialize the data first so we know how large it is.
-			std::ostringstream header_archive_stream;
-			boost::archive::text_oarchive header_archive(header_archive_stream);
-			header_archive << header;
-			std::string out_header_ = header_archive_stream.str();
-			// END
-
-			// Prepare header length
-			std::ostringstream header_size_stream;
-			header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-			if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
-			{
-				SRNP_PRINT_FATAL << "[setPairUpdate]: Couldn't set stream size.";
-			}
-			std::string  out_header_size_ = header_size_stream.str();
-
-			SRNP_PRINT_DEBUG << "Writing Pair Data To OTHER Server.";
-
 			boost::mutex::scoped_lock write_lock(client->sessions_map_[*it]->server_write_mutex);
 			client->sessions_map_[*it]->sendDataToServer(out_header_size_, out_header_, out_data_);
 		}
 		else
-			SRNP_PRINT_DEBUG << "A subscriber cound't be found.";
+		{
+			SRNP_PRINT_FATAL << "A subscriber cound't be found.";
+			it--;
+			usleep(100000);
+			continue;
+		}
+			
 	}
 
 	return true;
@@ -399,7 +447,7 @@ void Client::cancelSubscription(const std::string& key)
 	std::vector <std::string>::iterator key_iter = std::find(subscribed_tuples_.begin(), subscribed_tuples_.end(), key);
 	if(key_iter == subscribed_tuples_.end())
 	{
-		SRNP_PRINT_DEBUG << "NOT SUBSCRIBED";
+		SRNP_PRINT_WARNING << "NOT SUBSCRIBED";
 		return;
 	}
 
@@ -448,7 +496,7 @@ void Client::registerSubscription(const std::string& key)
 {
 	if(std::find(subscribed_tuples_.begin(), subscribed_tuples_.end(), key) != subscribed_tuples_.end())
 	{
-		SRNP_PRINT_DEBUG << "ALREADY SUBSCRIBED";
+		SRNP_PRINT_WARNING << "ALREADY SUBSCRIBED";
 		return;
 	}
 

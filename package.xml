@@ -1,8 +1,12 @@
 <?xml version="1.0"?>
+
+<!-- USE THIS FILE IF YOU INTEND TO BUILD SRNP AS A CATKIN-PACKAGE -->
+<!-- THIS EASES THE DEPENDENCY RESOLUTION -->
+<!-- JUST ADD find_package (catkin REQUIRED COMPONENTS srnp) to the dependent package's CMakeLists.txt -->
 <package>
   <name>srnp</name>
   <version>0.1.0</version>
-  <description>Simple Robot Network Protocol Package</description>
+  <description>Simply Re-written New PEIS Package</description>
 
   <maintainer email="chitt@live.in">Chittaranjan Srinivas Swaminathan</maintainer>
   <license>GPLv3</license>

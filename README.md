@@ -31,5 +31,9 @@ Though, I must admit that I couldn't understand a lot of the HARD-CORE C stuff.
 I hence implemented the protocol, etc., all by myself. 
 
 I would love to have a PairView, a rewritten TupleView. I am not sure how soon, though.
+#### PairView is available at https://github.com/ksatyaki/PairView
 
 This README was last updated on 16/02/2015, when SRNP was 9 days old.
+
+
+#### NOTE: THIS SOFTWARE IS LICENSED UNDER THE GNU GENERAL PUBLIC LICENSE v3.

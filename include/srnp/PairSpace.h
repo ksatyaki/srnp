@@ -1,16 +1,27 @@
 /*
- * PairSpace.h
- *
- *  Created on: Feb 9, 2015
- *      Author: ace
- */
+  PairSpace.h - The space of all pairs.
+  
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
 #ifndef PAIRSPACE_H_
 #define PAIRSPACE_H_
 
 #include <srnp/Pair.h>
+#include <boost/thread/mutex.hpp>
 #include <boost/shared_ptr.hpp>
-
 #include <srnp/srnp_print.h>
 
 namespace srnp
@@ -20,7 +31,16 @@ class PairSpace
 {
 	std::vector <Pair> pairs_;
 
+	/**
+	 * Every subscriber in this list is added to every new pair.
+	 */
+	std::vector <int> u_subscribers_;
+
+	Pair::CallbackFunction u_callback_;
+
 public:
+	boost::mutex mutex;
+	
 	PairSpace();
 
 	/**
@@ -37,6 +57,8 @@ public:
 			pairs_.erase(iter);
 	}
 
+	inline const std::vector <Pair>& getAllPairs() { return pairs_; }
+	
 	/**
 	 * Get the pair iterator with the key. Used only in local pair space.
 	 */
@@ -53,6 +75,16 @@ public:
 	void addSubscription(const std::string& key, const int& subscriber);
 
 	/**
+	 * Add Subscription to all.
+	 */
+	void addSubscriptionToAll(const int& subscriber);
+
+	/**
+	 * Remove Subscription to all.
+	 */
+	void removeSubscriptionToAll(const int& subscriber);
+
+	/**
 	 * Remove subscription.
 	 */
 	void removeSubscription(const std::string& key, const int& subscriber);
@@ -67,10 +99,16 @@ public:
 	 */
 	void addCallback(const std::string& key, Pair::CallbackFunction callback_fn);
 
+	void addCallbackToAll(Pair::CallbackFunction callback_fn);
+
 	/**
 	 * Print the entire pair-space.
 	 */
 	void printPairSpace();
+
+	//inline void mutexLock() { mutex_.lock(); }
+
+	//inline void mutexUnlock() { mutex_.unlock(); }
 };
 
 } /* namespace srnp */

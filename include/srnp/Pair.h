@@ -1,3 +1,22 @@
+/*
+  Pair.h - Defines the basic type used in SRNP - Pair.
+  
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
+
 #ifndef PAIR_H_
 #define PAIR_H_
 
@@ -9,6 +28,7 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/string.hpp>
 
+#include <boost/thread/mutex.hpp>
 #include <boost/function.hpp>
 #include <boost/date_time.hpp>
 #include <boost/date_time/posix_time/time_serialize.hpp>
@@ -58,6 +78,11 @@ public:
 	CallbackFunction callback_;
 
 	/**
+	 * A Mutex.
+	 */
+	boost::mutex callback_mutex; 
+	
+	/**
 	 * Convenience typedef.
 	 */
 	typedef boost::shared_ptr <Pair> Ptr;
@@ -67,6 +92,31 @@ public:
 		owner_ (owner)
 	{
 	}
+
+	inline Pair(const Pair& pair) :
+				pair_ (pair.pair_),
+				owner_ (pair.owner_),
+				write_time_ (pair.write_time_),
+		expiry_time_ (pair.expiry_time_),
+		subscribers_ (pair.subscribers_),
+		callback_ (pair.callback_)
+	{
+        
+
+    }
+
+	inline Pair& operator = (const Pair& pair)
+	{
+        pair_ = pair.pair_;
+        owner_ = pair.owner_;
+        write_time_ = pair.write_time_;
+        expiry_time_ = pair.expiry_time_;
+		subscribers_ = pair.subscribers_;
+		callback_ = pair.callback_;
+
+        return *this;
+
+    }
 
 	Pair(): owner_ (-1)
 	{
@@ -147,12 +197,6 @@ typedef boost::shared_ptr <Pair> PairPtr;
 /**
  * Provide support for cout.
  */
-std::ostream& operator<<(std::ostream& s, const Pair& pair)
-{
-	s<<"Key: "<<pair.getKey()<<". Value: "<<pair.getValue()<<"."<<std::endl
-			<<"Owner: "<<pair.getOwner()<<". Write time: "<<pair.getWriteTime()<<". Expiry time: "<<pair.getExpiryTime()<<"."<<std::endl;
-	return s;
-}
-
+std::ostream& operator<<(std::ostream& s, const Pair& pair);
 }
 #endif /* PAIR_H_ */
