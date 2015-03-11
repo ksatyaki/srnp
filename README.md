@@ -9,6 +9,7 @@ It's not even an alpha version now.
 ###Functions available
 
 Below are some implemented functions and their counter-parts in PEIS
+
 +-----+------------------------------+-----------------------------+
 |S No.|PEIS Functions.               |SRNP Functions               |
 +-----+------------------------------+-----------------------------+
