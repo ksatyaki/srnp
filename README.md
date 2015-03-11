@@ -11,13 +11,13 @@ It's not even an alpha version now.
 Below are some implemented functions and their counter-parts in PEIS
 
 
-|S No.|PEIS Functions.               |SRNP Functions               |
-|----:|:-----------------------------|:----------------------------|
-|    1|peiskmt_initialize            |srnp::initialize             |
-|    2|peiskmt_subscribe             |srnp::registerSubscription   |
-|    3|peiskmt_registerTupleCallback |srnp::registerCallback       |
-|    4|peiskmt_setStringTuple        |srnp::setPair                |
-|    5|peiskmt_setRemoteStringTuple  |<REMOVED>                    |
+|S No.|PEIS Functions.               |SRNP Functions                 |
+|----:|:-----------------------------|:------------------------------|
+|    1|peiskmt_initialize            |`srnp::initialize`             |
+|    2|peiskmt_subscribe             |`srnp::registerSubscription`   |
+|    3|peiskmt_registerTupleCallback |`srnp::registerCallback`       |
+|    4|peiskmt_setStringTuple        |`srnp::setPair`                |
+|    5|peiskmt_setRemoteStringTuple  |REMOVED                        |
 
 
 
@@ -25,7 +25,7 @@ It is based on the PEIS Kernel by Mathias Broxwall.
 
 https://github.com/mbrx/peisecology
 
-
+									                           	   
 ###What is SRNP?
 
 It's a complete recreation of the PEIS Kernel in C++ using Boost for a large part.
