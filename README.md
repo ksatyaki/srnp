@@ -28,7 +28,7 @@ https://github.com/mbrx/peisecology
 									                           	   
 ###What is SRNP?
 
-It's a complete recreation of the PEIS Kernel in C++ using Boost for a large part.
+It's a reimplementation of the PEIS Kernel in C++ using Boost for a large part. 
 It uses all principles from the PEIS Kernel - but it uses no source code from the
 original PEIS written in C. The concepts were programmed as I understood them.
 I did look at a few lines of the original code from time to time to get inspiration. 
@@ -83,4 +83,4 @@ Tested with both Qt4 and Qt5.
 
 
 
-#### NOTE: THIS SOFTWARE IS LICENSED UNDER THE GNU GENERAL PUBLIC LICENSE v3. However, components have different licences and are not included with this package.
+#### NOTE: THIS SOFTWARE IS LICENSED UNDER THE GNU GENERAL PUBLIC LICENSE v3. However, dependencies have different licences and are not included with this package.
