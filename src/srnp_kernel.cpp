@@ -10,12 +10,20 @@
 namespace srnp
 {
 
+bool KernelInstance::ok = false;
+
 // Static variable declaration.
 boost::shared_ptr <Server> KernelInstance::server_instance_;
 boost::shared_ptr <Client> KernelInstance::client_instance_;
 boost::shared_ptr <PairQueue> KernelInstance::pair_queue_;
 boost::shared_ptr <boost::asio::io_service> KernelInstance::io_service_;
 
+bool ok()
+{
+	if(KernelInstance::ok) return true;
+	else return false;
+}
+	
 void initialize_py (const std::string& ip, const std::string& port)
 {
 	int argn = 1;
@@ -60,6 +68,8 @@ void initialize(int argn, char* args[], char* env[])
 
 	}
 
+	KernelInstance::ok = true;
+
 	KernelInstance::io_service_ = boost::shared_ptr <boost::asio::io_service> (new boost::asio::io_service);
 	KernelInstance::pair_queue_ = boost::shared_ptr <PairQueue> (new PairQueue);
 	KernelInstance::server_instance_ = boost::shared_ptr <Server>
@@ -75,8 +85,6 @@ void initialize(int argn, char* args[], char* env[])
 void shutdown()
 {
 	SRNP_PRINT_INFO << "SRNP SHUTTING DOWN!";
-	KernelInstance::io_service_.reset();
-	KernelInstance::pair_queue_.reset();
 	KernelInstance::server_instance_.reset();
 	KernelInstance::client_instance_.reset();
 	SRNP_PRINT_INFO << "Everthing is over!";
