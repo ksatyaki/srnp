@@ -63,7 +63,7 @@ public:
 	 * Get the pair iterator with the key. Used only in local pair space.
 	 */
 	std::vector <Pair>::iterator getPairIteratorWithKey(const std::string& key);
-
+x
 	/**
 	 * Add a pair or update a pair in the pair-space.
 	 */
