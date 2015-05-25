@@ -23,6 +23,7 @@
 
 #include <srnp/client.h>
 #include <srnp/server.h>
+#include <map>
 
 namespace srnp
 
@@ -36,60 +37,63 @@ namespace srnp
 		static boost::shared_ptr <Server> server_instance_;
 		static boost::shared_ptr <Client> client_instance_;
 		static boost::shared_ptr <PairQueue> pair_queue_;
+		static boost::shared_ptr <PairSpace> pair_space_;
 		static boost::shared_ptr <boost::asio::io_service> io_service_;
 
 		static bool ok;
 	
 	};
 
-/**
- * Set a pair in your pair-space.
- */
+//	std::map <float, SrnpCallback> callbacks_map;
+
+    /**
+     * Set a pair in your pair-space.
+     */
 	void setPair (const std::string& key, const std::string& value);
 
-/**
- * A function to initialize SRNP from python.
- */
+    /**
+     * A function to initialize SRNP from python.
+     */
 	void initialize_py (const std::string& ip, const std::string& port);
 
-/**
- * Initialize the 'kernel'.
- */
+    /**
+     * Initialize the 'kernel'.
+     */
 	void initialize (int argn, char* args[], char* env[]);
 
-/**
- * Shutdown the 'kernel'.
- */
+    /**
+     * Shutdown the 'kernel'.
+     */
 	void shutdown();
 
-/**
- * Print Pairspace.
- */
+    /**
+     * Print Pairspace.
+     */
 	void printPairSpace();
 
-/**
- * Register a callback on a tuple.
- */
+    /**
+     * Register a callback on a tuple.
+     */
 	void registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
 
-/**
- * Cancel callback.
- */
+    /**
+     * Cancel callback.
+     */
 	void cancelCallback(const std::string& key);
 
-/**
- * Register a Subscription.
- */
+    /**
+     * Register a Subscription.
+     */
 	void registerSubscription(const std::string& key);
 
-/**
- * Cancel Subscription.
- */
+    /**
+     * Cancel Subscription.
+     */
 	void cancelSubscription(const std::string& key);
 
-/**
- * Get owner Id.
- */
+    /**
+     * Get owner Id.
+     */
 	int getOwnerID();
 
 	/** 

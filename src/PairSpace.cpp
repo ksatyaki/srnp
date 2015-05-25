@@ -150,9 +150,18 @@ void PairSpace::removeSubscriptionToAll(const int& subscriber)
 		}
 			
 	}
-	else
+	else {
 		SRNP_PRINT_DEBUG << "U SA What U Had to C.";
 		
+		for(std::vector <Pair>::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
+		{
+			std::vector <int>::iterator pair_sub_iter = std::find (iter->subscribers_.begin(), iter->subscribers_.end(), subscriber);
+
+			if(pair_sub_iter != iter->subscribers_.end())
+				iter->subscribers_.erase(pair_sub_iter);
+		}
+		
+	}	
 }
 
 

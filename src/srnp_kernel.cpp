@@ -17,6 +17,7 @@ boost::shared_ptr <Server> KernelInstance::server_instance_;
 boost::shared_ptr <Client> KernelInstance::client_instance_;
 boost::shared_ptr <PairQueue> KernelInstance::pair_queue_;
 boost::shared_ptr <boost::asio::io_service> KernelInstance::io_service_;
+boost::shared_ptr <PairSpace> KernelInstance::pair_space_;
 
 bool ok()
 {
@@ -69,24 +70,35 @@ void initialize(int argn, char* args[], char* env[])
 	}
 
 	KernelInstance::ok = true;
-
+	KernelInstance::pair_space_ = boost::shared_ptr <PairSpace> (new PairSpace);
 	KernelInstance::io_service_ = boost::shared_ptr <boost::asio::io_service> (new boost::asio::io_service);
 	KernelInstance::pair_queue_ = boost::shared_ptr <PairQueue> (new PairQueue);
 	KernelInstance::server_instance_ = boost::shared_ptr <Server>
-		(new Server(*KernelInstance::io_service_, srnp_master_ip, srnp_master_port, *KernelInstance::pair_queue_, desired_owner_id));
+		(new Server(*KernelInstance::io_service_,
+					srnp_master_ip,
+					srnp_master_port,
+					*KernelInstance::pair_space_,
+					*KernelInstance::pair_queue_,
+					desired_owner_id));
 
 	std::stringstream server_port;
 	server_port << KernelInstance::server_instance_->getPort();
 	KernelInstance::client_instance_ = boost::shared_ptr <Client> (new Client(*KernelInstance::io_service_,
-												"127.0.0.1", server_port.str(), *KernelInstance::pair_queue_));
+																			  "127.0.0.1",
+																			  server_port.str(),
+																			  *KernelInstance::pair_space_,
+																			  *KernelInstance::pair_queue_));
 
 }
 
 void shutdown()
 {
 	SRNP_PRINT_INFO << "SRNP SHUTTING DOWN!";
-	KernelInstance::server_instance_.reset();
-	KernelInstance::client_instance_.reset();
+	//KernelInstance::client_instance_.reset();
+	//KernelInstance::server_instance_.reset();
+	//KernelInstance::pair_queue_.reset();
+	//KernelInstance::io_service_.reset();
+	//KernelInstance::pair_space_.reset();
 	SRNP_PRINT_INFO << "Everthing is over!";
 	exit(0);
 }

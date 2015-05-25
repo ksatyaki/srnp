@@ -36,6 +36,7 @@
 #include <srnp/msgs/MasterMessages.h>
 #include <srnp/Pair.h>
 #include <srnp/PairQueue.h>
+#include <srnp/PairSpace.h>
 
 #ifdef WIN32
 #include <windows.h>
@@ -158,19 +159,21 @@ protected:
 
 	PairQueue& pair_queue_;
 
+	PairSpace& pair_space_;
+
 	std::map <int, ClientSession*> sessions_map_;
 
 public:
 
 	bool setPair(const std::string& key, const std::string& value);
 
-	bool registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
-	bool cancelCallback(const std::string& key);
+	std::string registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
+	void cancelCallback(const std::string& key);
 
 	void registerSubscription (const std::string& key);
 	void cancelSubscription (const std::string& key);
 
-	Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairQueue& pair_queue);
+	Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairSpace& pair_space, PairQueue& pair_queue);
 
 	virtual ~Client();
 };

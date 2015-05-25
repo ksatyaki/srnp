@@ -6,10 +6,10 @@
 class CallbackForTuple
 {
 public:
-	void callback_function(const srnp::Pair& p, int a)
+	void callback_function(const srnp::Pair::ConstPtr& p, int a)
 	{
 		SRNP_PRINT_DEBUG << "In callback!";
-		SRNP_PRINT_DEBUG << "Tuple: " << p;
+		SRNP_PRINT_DEBUG << "Tuple: " << *p;
 		SRNP_PRINT_DEBUG << "And custom value: " << a;
 	}
 };

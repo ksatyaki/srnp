@@ -253,8 +253,11 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 			sendPairUpdateToClient(iter);
 			if(iter->callback_ != NULL)
 			{
-				//SRNP_PRINT_DEBUG << "Making a simple callback";
-				iter->callback_(*iter);
+				if(owner_ != -1) {
+					//SRNP_PRINT_DEBUG << "Making a simple callback";
+					Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*iter));
+					iter->callback_(pair_to_callback);
+				}
 			}
 
 			startReading();
@@ -485,7 +488,8 @@ void ServerSession::handleReadPairUpdate (const boost::system::error_code& e)
 		if(iter->callback_ != NULL)
 		{
 			//SRNP_PRINT_DEBUG << "Making a callback!";
-			iter->callback_(*iter);
+			Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*iter));
+			iter->callback_(pair_to_callback);
 		}
 		else
 		{
@@ -608,12 +612,13 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 
 
 
-Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std::string master_hub_port, PairQueue& pair_queue, int desired_owner_id) :
+Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std::string master_hub_port, PairSpace& pair_space, PairQueue& pair_queue, int desired_owner_id) :
 		acceptor_ (service, tcp::endpoint(tcp::v4(), 0)),
 		strand_ (service),
 		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
 		io_service_ (service),
 		owner_id_(-1),
+		pair_space_ (pair_space),
 		pair_queue_ (pair_queue),
 		master_ip_ (master_hub_ip),
 		master_port_ (master_hub_port)

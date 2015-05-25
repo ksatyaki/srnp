@@ -24,6 +24,8 @@
 #include <vector>
 #include <utility>
 
+#include <boost/shared_ptr.hpp>
+
 #include <boost/serialization/utility.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/string.hpp>
@@ -64,7 +66,11 @@ protected:
 
 public:
 
-	typedef boost::function <void(const Pair&)> CallbackFunction;
+	typedef boost::shared_ptr <Pair> Ptr;
+
+	typedef boost::shared_ptr <const Pair> ConstPtr;
+
+	typedef boost::function <void(const Pair::ConstPtr&)> CallbackFunction;
 
 	/**
 	 * A list of owner ids subscribed to this pair.
@@ -81,11 +87,6 @@ public:
 	 * A Mutex.
 	 */
 	boost::mutex callback_mutex; 
-	
-	/**
-	 * Convenience typedef.
-	 */
-	typedef boost::shared_ptr <Pair> Ptr;
 
 	Pair ( const int& owner, const std::string& key, const std::string& value) :
 		pair_(std::pair <std::string, std::string> (key, value)),

@@ -178,7 +178,7 @@ protected:
 
 	PairQueue& pair_queue_;
 
-	PairSpace pair_space_;
+	PairSpace& pair_space_;
 
 public:
 
@@ -190,7 +190,7 @@ public:
 
 	inline void printPairSpace() { pair_space_.printPairSpace(); }
 
-	Server(boost::asio::io_service& service, std::string master_ip, std::string master_port, PairQueue& pair_queue, int desired_owner_id = -1);
+	Server(boost::asio::io_service& service, std::string master_ip, std::string master_port, PairSpace& pair_space, PairQueue& pair_queue, int desired_owner_id = -1);
 
 	void startSpinThreads();
 

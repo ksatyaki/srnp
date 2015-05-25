@@ -247,9 +247,10 @@ bool ClientSession::sendDataToServer(const std::string& out_header_size, const s
 /*********************** CLIENT ***********************/
 /******************************************************/
 
-Client::Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairQueue& pair_queue) :
+Client::Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairSpace& pair_space, PairQueue& pair_queue) :
 		service_ (service),
 		owner_id_ (-1),
+		pair_space_(pair_space),
 		pair_queue_(pair_queue)
 {
 	my_server_session_ = boost::shared_ptr <ClientSession> (new ClientSession (service, our_server_ip, our_server_port, true, this));
@@ -362,8 +363,17 @@ bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscrib
 	return true;
 }
 
-bool Client::registerCallback(const std::string& key, Pair::CallbackFunction callback_fn)
+std::string Client::registerCallback(const std::string& key, Pair::CallbackFunction callback_fn)
 {
+	boost::mutex::scoped_lock pair_lock (this->pair_space_.mutex);
+
+	if(key.compare("*") == 0)
+		pair_space_.addCallbackToAll(callback_fn);
+	else
+		pair_space_.addCallback(key, callback_fn);
+	
+
+	/*
 	// Serialize the tuple first.
 	// So we set-up the header according to this.
 	SubscriptionORCallback callback_msg;
@@ -402,10 +412,16 @@ bool Client::registerCallback(const std::string& key, Pair::CallbackFunction cal
 	pair_queue_.callback_queue.push(callback_fn);
 	boost::mutex::scoped_lock wirte_lock(socket_write_mutex);
 	return my_server_session_->sendDataToServer(out_header_size_, out_header_, out_data_);
+	*/
+	return "";
 }
 
-bool Client::cancelCallback(const std::string& key)
+void Client::cancelCallback(const std::string& key)
 {
+	boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
+	pair_space_.removeCallback(key);
+
+	/*
 	// Serialize the tuple first.
 	// So we set-up the header according to this.
 	SubscriptionORCallback callback_msg;
@@ -439,7 +455,7 @@ bool Client::cancelCallback(const std::string& key)
 	std::string  out_header_size_ = header_size_stream.str();
 
 	boost::mutex::scoped_lock wirte_lock(socket_write_mutex);
-	return my_server_session_->sendDataToServer(out_header_size_, out_header_, out_data_);
+	return my_server_session_->sendDataToServer(out_header_size_, out_header_, out_data_); */
 }
 
 void Client::cancelSubscription(const std::string& key)
