@@ -118,7 +118,7 @@ class ServerSession
 
 	void handleWrite(const boost::system::error_code& e);
 
-	void sendPairUpdateToClient(std::vector <Pair>::const_iterator iter, int sub_only_one = -1);
+	void sendPairUpdateToClient(const Pair& to_up, int sub_only_one = -1);
 
 	bool sendDataToClient(const std::string& out_header_size, const std::string& out_header, const std::string& out_data);
 

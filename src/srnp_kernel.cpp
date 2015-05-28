@@ -94,12 +94,15 @@ void initialize(int argn, char* args[], char* env[])
 void shutdown()
 {
 	SRNP_PRINT_INFO << "SRNP SHUTTING DOWN!";
-	//KernelInstance::client_instance_.reset();
-	//KernelInstance::server_instance_.reset();
-	//KernelInstance::pair_queue_.reset();
-	//KernelInstance::io_service_.reset();
-	//KernelInstance::pair_space_.reset();
-	SRNP_PRINT_INFO << "Everthing is over!";
+
+	KernelInstance::io_service_->stop();
+	
+	KernelInstance::client_instance_.reset();
+	KernelInstance::server_instance_.reset();
+	KernelInstance::pair_queue_.reset();
+	KernelInstance::io_service_.reset();
+	KernelInstance::pair_space_.reset();
+	//SRNP_PRINT_INFO << "Everthing is over!";
 	exit(0);
 }
 
@@ -113,24 +116,38 @@ void printPairSpace()
 	KernelInstance::server_instance_->printPairSpace();
 }
 
-void registerCallback(const std::string& key, Pair::CallbackFunction callback_fn)
+CallbackHandle registerCallback(const std::string& key, Pair::CallbackFunction callback_fn)
 {
-	KernelInstance::client_instance_->registerCallback(key, callback_fn);
+	return KernelInstance::client_instance_->registerCallback(key, callback_fn);
 }
 
-void cancelCallback(const std::string& key)
+void cancelCallback(const CallbackHandle& cbid)
 {
-	KernelInstance::client_instance_->cancelCallback(key);
+	KernelInstance::client_instance_->cancelCallback(cbid);
 }
 
-void registerSubscription(const std::string& key)
+SubscriptionHandle registerSubscription(const std::string& key)
 {
-	KernelInstance::client_instance_->registerSubscription(key);
+	return KernelInstance::client_instance_->registerSubscription(key);
+}
+	
+SubscriptionHandle registerSubscription(const int& owner, const std::string& key)
+{
+	return KernelInstance::client_instance_->registerSubscription(owner, key);
 }
 
 void cancelSubscription(const std::string& key)
 {
 	KernelInstance::client_instance_->cancelSubscription(key);
+}
+
+void cancelSubscription(const SubscriptionHandle& handle) {
+	KernelInstance::client_instance_->cancelSubscription(handle);
+}
+
+void cancelSubscription(const int& owner, const std::string& key)
+{
+	KernelInstance::client_instance_->cancelSubscription(owner, key);
 }
 
 int getOwnerID ()

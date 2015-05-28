@@ -48,10 +48,10 @@ add_library (srnp_kernel SHARED src/srnp_kernel.cpp)
 target_link_libraries (srnp_kernel srnp_pair srnp_server srnp_client srnp_pair_space srnp_print ${Boost_LIBRARIES})
 
 # Python Wrapper
-add_library (srnpy SHARED src/srnp_python.cpp)
-target_link_libraries (srnpy srnp_kernel ${Boost_LIBRARIES})
+# add_library (srnpy SHARED src/srnp_python.cpp)
+# target_link_libraries (srnpy srnp_kernel ${Boost_LIBRARIES})
 
-set_target_properties(srnpy PROPERTIES PREFIX "")
+# set_target_properties(srnpy PROPERTIES PREFIX "")
 
 # Test
 add_executable (simple src/single_tests/simple.cpp)

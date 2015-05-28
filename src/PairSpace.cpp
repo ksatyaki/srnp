@@ -22,10 +22,23 @@
 namespace srnp
 {
 
-PairSpace::PairSpace ()
+PairSpace::PairSpace () : cbid_new_(0.00)
 {
 
 }
+
+std::string PairSpace::getKeyFromCBID(double cbid) {
+
+	std::map<double, std::string>::iterator the_one = cbid_to_key_.find(cbid);
+	if(the_one == cbid_to_key_.end()) {
+		return "";
+	}
+	else
+	{
+		return the_one->second;
+	}
+}
+
 
 std::vector <Pair>::iterator PairSpace::getPairIteratorWithKey(const std::string& key)
 {
@@ -41,22 +54,26 @@ std::vector <Pair>::iterator PairSpace::getPairIteratorWithKey(const std::string
 	return pairs_.end();
 }
 
-void PairSpace::addCallback(const std::string& key, Pair::CallbackFunction callback_fn)
+CallbackHandle PairSpace::addCallback(const std::string& key, Pair::CallbackFunction callback_fn)
 {
+	this->cbid_new_ = cbid_new_ + 0.001;
+	cbid_to_key_[cbid_new_] = key;
 	typedef std::vector <Pair> PairVector;
 	PairVector::iterator it = getPairIteratorWithKey(key);
 	if(it == pairs_.end())
 	{
 		//SRNP_PRINT_DEBUG << "Adding callback (future).";
 		Pair new_one (-1, key, "");
-		new_one.callback_ = callback_fn;
+		new_one.callbacks_[cbid_new_] = callback_fn;
 		addPair(new_one);
 	}
 	else
 	{
 		//SRNP_PRINT_DEBUG << "Adding a callback on existing tuple!";
-		it->callback_ = callback_fn;
+		it->callbacks_[cbid_new_] = callback_fn;
 	}
+
+	return cbid_new_;
 }
 
 void PairSpace::addCallbackToAll(Pair::CallbackFunction callback_fn)
@@ -64,25 +81,32 @@ void PairSpace::addCallbackToAll(Pair::CallbackFunction callback_fn)
 	
 	SRNP_PRINT_DEBUG << "Adding a universal callback to all.";
 	u_callback_ = callback_fn;
+
+	/*
 	for(std::vector <Pair>::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
 	{
 		iter->callback_ = callback_fn;
 	}
+	*/
 	
 }
 
-void PairSpace::removeCallback(const std::string& key)
+void PairSpace::removeCallback(const CallbackHandle& cbid)
 {
 	typedef std::vector <Pair> PairVector;
-	PairVector::iterator it = getPairIteratorWithKey(key);
-	if(it == pairs_.end())
-	{
-		//SRNP_PRINT_DEBUG << "No such pair exists. No problem.";
+	std::string key_of_pair = getKeyFromCBID(cbid);
+
+	if(key_of_pair.empty()) return;
+	
+	PairVector::iterator it = getPairIteratorWithKey(key_of_pair);
+
+//SRNP_PRINT_DEBUG << "Removing the callback.";
+	std::map<CallbackHandle, Pair::CallbackFunction>::iterator callback_iter = it->callbacks_.find(cbid);
+	if(callback_iter == it->callbacks_.end()) {
+		SRNP_PRINT_FATAL << "A Callback that is supposed to be here is missing!!!";
 	}
-	else
-	{
-		//SRNP_PRINT_DEBUG << "Removing the callback.";
-		it->callback_ = NULL;
+	else {
+		it->callbacks_.erase(callback_iter);
 	}
 }
 
@@ -151,14 +175,16 @@ void PairSpace::removeSubscriptionToAll(const int& subscriber)
 			
 	}
 	else {
-		SRNP_PRINT_DEBUG << "U SA What U Had to C.";
-		
+	
 		for(std::vector <Pair>::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
 		{
 			std::vector <int>::iterator pair_sub_iter = std::find (iter->subscribers_.begin(), iter->subscribers_.end(), subscriber);
 
-			if(pair_sub_iter != iter->subscribers_.end())
+			if(pair_sub_iter != iter->subscribers_.end()) {
+				//SRNP_PRINT_DEBUG << "SAFE!";
 				iter->subscribers_.erase(pair_sub_iter);
+			}
+				
 		}
 		
 	}	
@@ -203,12 +229,6 @@ void PairSpace::addPair(const Pair& pair)
 
 		for(std::vector<int>::iterator u_sub_iter = u_subscribers_.begin(); u_sub_iter != u_subscribers_.end(); u_sub_iter++)
 			pairs_.back().subscribers_.push_back(*u_sub_iter);
-
-		if(u_callback_)
-		{
-			pairs_.back().callback_ = u_callback_;
-		}
-			
 	}
 	else
 	{

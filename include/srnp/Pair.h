@@ -38,6 +38,9 @@
 namespace srnp
 {
 
+typedef double CallbackHandle;
+typedef int SubscriptionHandle; 
+
 /**
  * A Class that derives from PairBase.
  */
@@ -79,9 +82,9 @@ public:
 
 	/**
 	 * A callback.
-	 * There can be only one.
+	 * There can be many.
 	 */
-	CallbackFunction callback_;
+	std::map <CallbackHandle, CallbackFunction> callbacks_;
 
 	/**
 	 * A Mutex.
@@ -100,7 +103,7 @@ public:
 				write_time_ (pair.write_time_),
 		expiry_time_ (pair.expiry_time_),
 		subscribers_ (pair.subscribers_),
-		callback_ (pair.callback_)
+		callbacks_ (pair.callbacks_)
 	{
         
 
@@ -113,7 +116,7 @@ public:
         write_time_ = pair.write_time_;
         expiry_time_ = pair.expiry_time_;
 		subscribers_ = pair.subscribers_;
-		callback_ = pair.callback_;
+		callbacks_ = pair.callbacks_;
 
         return *this;
 

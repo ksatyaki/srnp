@@ -244,22 +244,27 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 			// Redundant. But no loss.
 			tuple.setOwner(owner_);
 
-			//pair_space_.mutexLock();
-			boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
+			pair_space_.mutex.lock();
 			pair_space_.addPair(tuple);
-			//pair_space_.mutexUnlock();
+			Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithKey(tuple.getKey()))));
+			pair_space_.mutex.unlock();
 
-			std::vector <Pair>::iterator iter = pair_space_.getPairIteratorWithKey(tuple.getKey());
-			sendPairUpdateToClient(iter);
-			if(iter->callback_ != NULL)
+			if(pair_space_.u_callback_ != NULL) {
+				pair_space_.u_callback_(pair_to_callback);
+			}
+
+			if(pair_to_callback->callbacks_.size() != 0)
 			{
 				if(owner_ != -1) {
 					//SRNP_PRINT_DEBUG << "Making a simple callback";
-					Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*iter));
-					iter->callback_(pair_to_callback);
+					
+					for(std::map<CallbackHandle, Pair::CallbackFunction>::const_iterator i = pair_to_callback->callbacks_.begin(); i != pair_to_callback->callbacks_.end(); i++) {
+						i->second(pair_to_callback);	
+					}
 				}
 			}
-
+		
+			sendPairUpdateToClient(*pair_to_callback);
 			startReading();
 		}
 		else if(header.type == MessageHeader::PAIR_UPDATE)
@@ -283,9 +288,9 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 
 }
 
-void ServerSession::sendPairUpdateToClient(std::vector <Pair>::const_iterator iter, int sub_only_one)
+void ServerSession::sendPairUpdateToClient(const Pair& to_up, int sub_only_one)
 {
-	if(iter->subscribers_.size() != 0)
+	if(to_up.subscribers_.size() != 0)
 	{
 		std::string out_data_ = "";
 		// END
@@ -321,7 +326,7 @@ void ServerSession::sendPairUpdateToClient(std::vector <Pair>::const_iterator it
 		// Because if we don't, another thread could push to queue and send after we have
 		// just pushed. And on the receiving end, our member will be popped.
 		boost::mutex::scoped_lock scoped_mutex_lock(pair_queue_.pair_update_queue_mutex);
-		pair_queue_.pair_update_queue.push(*iter);
+		pair_queue_.pair_update_queue.push(to_up);
 		//SRNP_PRINT_DEBUG << "Queue push pui - pair update";
 
 		//SRNP_PRINT_DEBUG << "Writing Data To Client.";
@@ -385,7 +390,7 @@ void ServerSession::handleReadCallback(const boost::system::error_code& e)
 		}
 		else
 		{
-			pair_space_.removeCallback(subscriptionORCallbackMsg.key);
+			//pair_space_.removeCallback(subscriptionORCallbackMsg.key);
 		}
 
 
@@ -431,7 +436,7 @@ void ServerSession::handleReadSubscription(const boost::system::error_code& e)
 					if(iter->getOwner() == this->owner_)
 					{
 						//SRNP_PRINT_DEBUG << "Subscriber: " << subscriptionORCallbackMsg.subscriber;
-						this->server_->my_client_session()->sendPairUpdateToClient(iter, subscriptionORCallbackMsg.subscriber);
+						this->server_->my_client_session()->sendPairUpdateToClient(*iter, subscriptionORCallbackMsg.subscriber);
 					}
 				}
 			}
@@ -440,9 +445,10 @@ void ServerSession::handleReadSubscription(const boost::system::error_code& e)
 				//pair_space_.mutexLock();
 				pair_space_.addSubscription(subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
 				//pair_space_.mutexUnlock();
-				
-				//SRNP_PRINT_DEBUG << "CORALLARY WORKS!";
-				this->server_->my_client_session()->sendPairUpdateToClient(pair_space_.getPairIteratorWithKey(subscriptionORCallbackMsg.key), subscriptionORCallbackMsg.subscriber);
+
+				const std::vector <Pair>::const_iterator pairIterator = pair_space_.getPairIteratorWithKey(subscriptionORCallbackMsg.key);
+				if(pairIterator->getOwner() == this->owner_)
+					this->server_->my_client_session()->sendPairUpdateToClient(*pairIterator, subscriptionORCallbackMsg.subscriber);
 			}
 				
 		}
@@ -479,23 +485,25 @@ void ServerSession::handleReadPairUpdate (const boost::system::error_code& e)
 		data_archive >> tuple;
 		//SRNP_PRINT_DEBUG << "We got a PairUpdate: " << tuple;
 
-		//pair_space_.mutexLock();
-		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
+		pair_space_.mutex.lock();
 		pair_space_.addPair(tuple);
-		//pair_space_.mutexUnlock();
-		
-		std::vector <Pair>::iterator iter = pair_space_.getPairIteratorWithKey(tuple.getKey());
-		if(iter->callback_ != NULL)
-		{
-			//SRNP_PRINT_DEBUG << "Making a callback!";
-			Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*iter));
-			iter->callback_(pair_to_callback);
-		}
-		else
-		{
-			//SRNP_PRINT_DEBUG << "No callbacks to invoke.";
+		Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithKey(tuple.getKey()))));
+		pair_space_.mutex.unlock();
+
+		if(pair_space_.u_callback_ != NULL) {
+			pair_space_.u_callback_(pair_to_callback);
 		}
 
+		if(pair_to_callback->callbacks_.size() != 0)
+		{
+			if(owner_ != -1) {
+				//SRNP_PRINT_DEBUG << "Making a simple callback";
+				for(std::map<CallbackHandle, Pair::CallbackFunction>::const_iterator i = pair_to_callback->callbacks_.begin(); i != pair_to_callback->callbacks_.end(); i++) {
+					i->second(pair_to_callback);	
+				}
+			}
+		}
+		
 		startReading();
 	}
 	else
@@ -642,7 +650,7 @@ void Server::startSpinThreads()
 {
 	for(int i = 0; i < 4; i++)
 		spin_thread_[i] = boost::thread (boost::bind(&boost::asio::io_service::run, &io_service_));
-	SRNP_PRINT_DEBUG << "Four separate listening threads have started.";
+	//SRNP_PRINT_DEBUG << "Four separate listening threads have started.";
 }
 
 void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>& client_session, int desired_owner_id, const boost::system::error_code& e)
@@ -689,16 +697,16 @@ void Server::onHeartbeat()
 	elapsed_time_ += boost::posix_time::seconds(1);
 	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
-	SRNP_PRINT_TRACE << "*********************************************************";
-	SRNP_PRINT_TRACE << "[SERVER] Elapsed time: " << elapsed_time_ << std::endl;
-	SRNP_PRINT_TRACE << "[SERVER] Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
-	SRNP_PRINT_TRACE << "[SERVER] No. of Active Sessions: " << ServerSession::session_counter;
-	SRNP_PRINT_TRACE << "*********************************************************";
+	//SRNP_PRINT_TRACE << "*********************************************************";
+	//SRNP_PRINT_TRACE << "[SERVER] Elapsed time: " << elapsed_time_ << std::endl;
+	//SRNP_PRINT_TRACE << "[SERVER] Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
+	//SRNP_PRINT_TRACE << "[SERVER] No. of Active Sessions: " << ServerSession::session_counter;
+	//SRNP_PRINT_TRACE << "*********************************************************";
 }
 
 void Server::waitForEver()
 {
-	SRNP_PRINT_DEBUG << "Starting to wait forever...";
+	//SRNP_PRINT_DEBUG << "Starting to wait forever...";
 	for(int i = 0; i < 4; i++)
 	{
 		spin_thread_[i].join();
@@ -707,7 +715,7 @@ void Server::waitForEver()
 
 Server::~Server()
 {
-
+	//SRNP_PRINT_DEBUG << "SERVER CLOSES CLEANLY!";
 }
 
 } /* namespace srnp */

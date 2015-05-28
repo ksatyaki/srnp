@@ -19,6 +19,9 @@
 #ifndef PAIRSPACE_H_
 #define PAIRSPACE_H_
 
+#include <string>
+#include <map>
+
 #include <srnp/Pair.h>
 #include <boost/thread/mutex.hpp>
 #include <boost/shared_ptr.hpp>
@@ -36,9 +39,16 @@ class PairSpace
 	 */
 	std::vector <int> u_subscribers_;
 
-	Pair::CallbackFunction u_callback_;
+	std::map <CallbackHandle, std::string> cbid_to_key_;
+
+	CallbackHandle cbid_new_;
 
 public:
+
+	Pair::CallbackFunction u_callback_;
+
+	std::string getKeyFromCBID(double cbid);
+	
 	boost::mutex mutex;
 	
 	PairSpace();
@@ -92,12 +102,12 @@ public:
 	/**
 	 * Remove callback.
 	 */
-	void removeCallback(const std::string& key);
+	void removeCallback(const CallbackHandle& cbid);
 
 	/**
 	 * Add a callback.
 	 */
-	void addCallback(const std::string& key, Pair::CallbackFunction callback_fn);
+	CallbackHandle addCallback(const std::string& key, Pair::CallbackFunction callback_fn);
 
 	void addCallbackToAll(Pair::CallbackFunction callback_fn);
 

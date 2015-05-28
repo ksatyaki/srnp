@@ -24,8 +24,8 @@ namespace srnp
 
 std::ostream& operator<<(std::ostream& s, const Pair& pair)
 {
-	s<<"Key: "<<pair.getKey()<<". Value: "<<pair.getValue()<<"."<<std::endl
-			<<"Owner: "<<pair.getOwner()<<". Write time: "<<pair.getWriteTime()<<". Expiry time: "<<pair.getExpiryTime()<<"."<<std::endl;
+	s<<"Key: "<<pair.getKey()<<". Value: "<<pair.getValue()<<".";
+	s<<"Owner: "<<pair.getOwner()<<". Write time: "<<pair.getWriteTime()<<". Expiry time: "<<pair.getExpiryTime()<<".";
 	return s;
 }
 

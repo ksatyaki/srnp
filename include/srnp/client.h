@@ -86,6 +86,11 @@ protected:
 	tcp::resolver::iterator endpoint_iterator_;
 
 	/**
+	 * The owner id of the endpoint srnp component.
+	 */
+	int endpoint_owner_id_;
+
+	/**
 	 * A deadline timer to wait for timeout before attempting to reconnect.
 	 */
 	boost::asio::deadline_timer reconnect_timer_;
@@ -135,7 +140,8 @@ public:
 	 */
 	bool sendDataToServer(const std::string& out_header_size, const std::string& out_header, const std::string& out_data);
 
-	ClientSession(boost::asio::io_service& service, const std::string& host, const std::string& port, bool is_this_our_server_session = false, Client* client = NULL);
+	ClientSession(boost::asio::io_service& service, const std::string& host, const std::string& port, bool is_this_our_server_session = false, Client* client = NULL, const int& endpoint_owner_id = -10);
+	~ClientSession();
 };
 
 class Client
@@ -144,6 +150,12 @@ class Client
 protected:
 
 	std::vector <std::string> subscribed_tuples_;
+
+	std::map <int, std::vector <std::string> > owner_id_to_subscribed_pairs_;
+
+	std::map <SubscriptionHandle, std::pair <int, std::string> > subscription_handle_to_owner_key_;
+
+	std::map <SubscriptionHandle, std::string> subscription_handle_to_key_multiple_;
 
 	boost::mutex socket_write_mutex;
 
@@ -163,14 +175,20 @@ protected:
 
 	std::map <int, ClientSession*> sessions_map_;
 
+	SubscriptionHandle subscription_handle_new_ ;
+
 public:
 
 	bool setPair(const std::string& key, const std::string& value);
 
-	std::string registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
-	void cancelCallback(const std::string& key);
+	CallbackHandle registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
+	void cancelCallback(const CallbackHandle& cbid);
 
-	void registerSubscription (const std::string& key);
+	SubscriptionHandle registerSubscription (const int& owner, const std::string& key);
+	SubscriptionHandle registerSubscription (const std::string& key);
+
+	void cancelSubscription (const SubscriptionHandle &handle);
+	void cancelSubscription (const int& owner, const std::string& key);
 	void cancelSubscription (const std::string& key);
 
 	Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairSpace& pair_space, PairQueue& pair_queue);

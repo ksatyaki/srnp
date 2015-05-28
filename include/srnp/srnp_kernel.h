@@ -74,22 +74,45 @@ namespace srnp
     /**
      * Register a callback on a tuple.
      */
-	void registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
+	CallbackHandle registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
 
     /**
      * Cancel callback.
      */
-	void cancelCallback(const std::string& key);
+	void cancelCallback(const CallbackHandle& cbid);
 
     /**
      * Register a Subscription.
+	 * @param key The key of the tuple.
+	 * @return The SubscriptionHandle corresponding to this subscription.
      */
-	void registerSubscription(const std::string& key);
+	SubscriptionHandle registerSubscription(const std::string& key);
 
     /**
      * Cancel Subscription.
      */
 	void cancelSubscription(const std::string& key);
+
+	/** 
+	 * Use a Subscription Handle to delete a callback; 
+	 * @param handle The SubscriptionHandle corresponding to the subscription we wish to cancel.
+	 */
+	void cancelSubscription(const SubscriptionHandle& handle);
+
+	/** 
+	 * Cancel a subscription on a particular <owner, key>. 
+	 * @param owner The owner-id.
+	 * @param key The key.
+	 */
+	void cancelSubscription(const int& owner, const std::string& key);
+
+	/** 
+	 * Register a subscription on a particular <owner, key>. 
+	 * @param owner The owner-id.
+	 * @param key The key.
+	 * @return The SubscriptionHandle for this subscription.
+	 */
+	SubscriptionHandle registerSubscription(const int& owner, const std::string& key);
 
     /**
      * Get owner Id.
