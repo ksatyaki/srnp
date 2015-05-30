@@ -422,7 +422,7 @@ bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscrib
 	return true;
 }
 
-CallbackHandle Client::registerCallback(const std::string& key, Pair::CallbackFunction callback_fn)
+CallbackHandle Client::registerCallback(const std::string& key, const Pair::CallbackFunction& callback_fn)
 {
 	boost::mutex::scoped_lock pair_space_lock (this->pair_space_.mutex);
 
@@ -777,22 +777,3 @@ Client::~Client()
 }
 
 } /* namespace srnp */
-
-/*
-int main()
-{
-	std::pair <std::string, std::string> host_pair ("127.0.0.1", "33133");
-	std::vector < std::pair <std::string, std::string> > vec_host_pairs;
-	vec_host_pairs.push_back(host_pair);
-
-	boost::asio::io_service service;
-
-	std::queue <srnp::PairPtr> pair_queue;
-
-	srnp::Client cli (service, vec_host_pairs, pair_queue);
-
-	service.run();
-
-	return 0;
-}
-*/

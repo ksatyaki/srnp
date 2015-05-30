@@ -74,7 +74,7 @@ namespace srnp
     /**
      * Register a callback on a tuple.
      */
-	CallbackHandle registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
+	CallbackHandle registerCallback(const std::string& key, const Pair::CallbackFunction& callback_fn);
 
     /**
      * Cancel callback.
@@ -94,7 +94,7 @@ namespace srnp
 	void cancelSubscription(const std::string& key);
 
 	/** 
-	 * Use a Subscription Handle to delete a callback; 
+	 * Use a Subscription Handle to delete a subscription; 
 	 * @param handle The SubscriptionHandle corresponding to the subscription we wish to cancel.
 	 */
 	void cancelSubscription(const SubscriptionHandle& handle);

@@ -2,6 +2,7 @@
 #include <boost/asio.hpp>
 
 #include <srnp/srnp_kernel.h>
+#include <srnp/meta_tuple_callback.hpp>
 
 class CallbackForTuple
 {
@@ -26,46 +27,26 @@ int main(int argn, char* args[], char* env[])
 
 	sleep(2);
 
-	CallbackForTuple callback_object, co2;
+	CallbackForTuple callback_object;
 	int value = 8;
-
-	srnp::setPair("Superb.gol", "Goot");
-	srnp::SubscriptionHandle sh_1 = srnp::registerSubscription(1, "simple");
-	srnp::CallbackHandle cal1 = srnp::registerCallback("simple", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1, value));
-	srnp::CallbackHandle cal2 = srnp::registerCallback("simple", boost::bind(&CallbackForTuple::callback_function, &co2, _1, 2));
-
-	int i = 10;
-	while(i--) {
-		SRNP_PRINT_DEBUG << i;
-		usleep(500000);
-	}
-
-	srnp::cancelCallback(cal2);
-	srnp::cancelSubscription(sh_1);
-
-	i = 10;
-	while(i--) {
-		SRNP_PRINT_DEBUG << i;
-		usleep(500000);
-	}
-
-	srnp::SubscriptionHandle sh_2 = srnp::registerSubscription(1, "simple");
 	
-	i = 10;
+	srnp::registerMetaTupleCallback(1, "simple", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1, value));
+
+	int i = 20;
+	
 	while(i--) {
 		SRNP_PRINT_DEBUG << i;
 		usleep(500000);
 	}
 
-	srnp::cancelSubscription(sh_1);
-	srnp::cancelSubscription(sh_2);
+	srnp::unregisterMetaTupleCallback(1, "simple");
 
 	i = 10;
 	while(i--) {
 		SRNP_PRINT_DEBUG << i;
 		usleep(500000);
 	}
-
+	
 	srnp::shutdown();
 	return 0;
 }

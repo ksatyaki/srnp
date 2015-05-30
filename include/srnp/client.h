@@ -181,7 +181,7 @@ public:
 
 	bool setPair(const std::string& key, const std::string& value);
 
-	CallbackHandle registerCallback(const std::string& key, Pair::CallbackFunction callback_fn);
+	CallbackHandle registerCallback(const std::string& key, const Pair::CallbackFunction& callback_fn);
 	void cancelCallback(const CallbackHandle& cbid);
 
 	SubscriptionHandle registerSubscription (const int& owner, const std::string& key);

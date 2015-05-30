@@ -116,7 +116,7 @@ void printPairSpace()
 	KernelInstance::server_instance_->printPairSpace();
 }
 
-CallbackHandle registerCallback(const std::string& key, Pair::CallbackFunction callback_fn)
+CallbackHandle registerCallback(const std::string& key, const Pair::CallbackFunction& callback_fn)
 {
 	return KernelInstance::client_instance_->registerCallback(key, callback_fn);
 }
