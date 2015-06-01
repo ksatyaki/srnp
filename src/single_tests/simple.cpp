@@ -2,20 +2,16 @@
 #include <boost/asio.hpp>
 
 #include <srnp/srnp_kernel.h>
-#include <srnp/meta_tuple_callback.hpp>
+#include <srnp/meta_pair_callback.hpp>
 
-class CallbackForTuple
-{
-public:
-	void callback_function(const srnp::Pair::ConstPtr& p, int a)
+	void callback_function(const srnp::Pair::ConstPtr& p)
 	{
 		SRNP_PRINT_DEBUG << "*****************************************";
 		SRNP_PRINT_DEBUG << "In callback!";
 		SRNP_PRINT_DEBUG << "Tuple: " << *p;
-		SRNP_PRINT_DEBUG << "And custom value: " << a;
 		SRNP_PRINT_DEBUG << "*****************************************";
 	}
-};
+
 
 int main(int argn, char* args[], char* env[])
 {
@@ -23,15 +19,14 @@ int main(int argn, char* args[], char* env[])
 
 	srnp::initialize(argn, args, env);
 
-	SRNP_PRINT_DEBUG << "GO!";
+	printf("\nGo!\n");
 
-	sleep(2);
+	sleep(1);
 
-	CallbackForTuple callback_object;
-	int value = 8;
+	//CallbackForTuple callback_object;
 	
-	srnp::registerMetaTupleCallback(1, "simple", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1, value));
-
+	srnp::registerMetaCallback(1, "simple", callback_function);
+	
 	int i = 20;
 	
 	while(i--) {
@@ -39,7 +34,7 @@ int main(int argn, char* args[], char* env[])
 		usleep(500000);
 	}
 
-	srnp::unregisterMetaTupleCallback(1, "simple");
+	srnp::cancelMetaCallback(1, "simple");
 
 	i = 10;
 	while(i--) {

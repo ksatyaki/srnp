@@ -246,7 +246,7 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 
 			pair_space_.mutex.lock();
 			pair_space_.addPair(tuple);
-			Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithKey(tuple.getKey()))));
+			Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithOwnerAndKey(tuple.getOwner(), tuple.getKey()))));
 			pair_space_.mutex.unlock();
 
 			if(pair_space_.u_callback_ != NULL) {
@@ -275,9 +275,9 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 		{
 			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadSubscription, this, boost::asio::placeholders::error) );
 		}
-		else if(header.type == MessageHeader::CALLBACK)
+		else if(header.type == MessageHeader::PAIR)
 		{
-			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadCallback, this, boost::asio::placeholders::error) );
+			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadPair, this, boost::asio::placeholders::error) );
 		}
 	}
 	else
@@ -361,42 +361,39 @@ bool ServerSession::sendDataToClient(const std::string& out_header_size, const s
 	else return false;
 }
 
-void ServerSession::handleReadCallback(const boost::system::error_code& e)
+void ServerSession::handleReadPair(const boost::system::error_code& e)
 {
 	if(!e)
 	{
 		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
 		boost::archive::text_iarchive data_archive(data_stream);
-		SubscriptionORCallback subscriptionORCallbackMsg;
-		data_archive >> subscriptionORCallbackMsg;
-
-		// PAIR_SPACE_MUTEX_LOCK
-		//pair_space_.mutexLock();
+	    Pair tuple;
+		data_archive >> tuple;
 		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
-		//SRNP_PRINT_DEBUG << "We got a Callback Request: ";
 
-		//SRNP_PRINT_DEBUG << "Registering/cancelling a callback on a pair.";
-		if(subscriptionORCallbackMsg.registering)
-		{
-			pair_queue_.callback_queue_mutex.lock();
-			
-			if(subscriptionORCallbackMsg.key.compare("*") == 0)
-				pair_space_.addCallbackToAll(pair_queue_.callback_queue.front());
-			else
-				pair_space_.addCallback(subscriptionORCallbackMsg.key, pair_queue_.callback_queue.front());
-			
-			pair_queue_.callback_queue.pop();
-			pair_queue_.callback_queue_mutex.unlock();
-		}
-		else
-		{
-			//pair_space_.removeCallback(subscriptionORCallbackMsg.key);
+	    tuple.setOwner(owner_);
+
+		pair_space_.mutex.lock();
+		pair_space_.addPair(tuple);
+		Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithOwnerAndKey(tuple.getOwner(), tuple.getKey()))));
+		pair_space_.mutex.unlock();
+
+		if(pair_space_.u_callback_ != NULL) {
+			pair_space_.u_callback_(pair_to_callback);
 		}
 
-
-		// PAIR_SPACE_MUTEX_UNLOCK
-		//pair_space_.mutexUnlock();
-
+		if(pair_to_callback->callbacks_.size() != 0)
+		{
+			if(owner_ != -1) {
+				//SRNP_PRINT_DEBUG << "Making a simple callback";
+					
+				for(std::map<CallbackHandle, Pair::CallbackFunction>::const_iterator i = pair_to_callback->callbacks_.begin(); i != pair_to_callback->callbacks_.end(); i++) {
+					i->second(pair_to_callback);	
+				}
+			}
+		}
+		
+		sendPairUpdateToClient(*pair_to_callback);
 		startReading();
 	}
 	else
@@ -404,7 +401,6 @@ void ServerSession::handleReadCallback(const boost::system::error_code& e)
 		ServerSession::session_counter--;
 		delete this;
 	}
-
 }
 
 void ServerSession::handleReadSubscription(const boost::system::error_code& e)
@@ -415,8 +411,18 @@ void ServerSession::handleReadSubscription(const boost::system::error_code& e)
 		boost::archive::text_iarchive data_archive(data_stream);
 		SubscriptionORCallback subscriptionORCallbackMsg;
 		data_archive >> subscriptionORCallbackMsg;
-		//SRNP_PRINT_DEBUG << "We got a subscription request: ";
+		SRNP_PRINT_DEBUG << "We got a subscription request: " << subscriptionORCallbackMsg.subscriber << ", " << subscriptionORCallbackMsg.key;
 
+		if(subscriptionORCallbackMsg.owner_id != this->owner_ && subscriptionORCallbackMsg.key.compare("*") != 0){
+			SRNP_PRINT_WARNING << "Got a subscription/cancellation message, not meant for us, but for: " << subscriptionORCallbackMsg.owner_id;
+			return;
+		}
+
+		if(subscriptionORCallbackMsg.subscriber == this->owner_) {
+			SRNP_PRINT_FATAL << "Got a subscription message from ourself!";
+			return;
+		}
+		
 		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
 		
 		//SRNP_PRINT_DEBUG << "Registering/cancelling a subscription on our own sweet pair.";
@@ -424,9 +430,7 @@ void ServerSession::handleReadSubscription(const boost::system::error_code& e)
 		{
 			if(subscriptionORCallbackMsg.key.compare("*") == 0)
 			{
-				//pair_space_.mutexLock();
 				pair_space_.addSubscriptionToAll(subscriptionORCallbackMsg.subscriber);
-				//pair_space_.mutexUnlock();
 				
 				const std::vector <Pair>& all_keys = pair_space_.getAllPairs();
 				
@@ -442,26 +446,24 @@ void ServerSession::handleReadSubscription(const boost::system::error_code& e)
 			}
 			else
 			{
-				//pair_space_.mutexLock();
-				pair_space_.addSubscription(subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
-				//pair_space_.mutexUnlock();
+				pair_space_.addSubscription(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
 
-				const std::vector <Pair>::const_iterator pairIterator = pair_space_.getPairIteratorWithKey(subscriptionORCallbackMsg.key);
-				if(pairIterator->getOwner() == this->owner_)
+				const std::vector <Pair>::const_iterator pairIterator = pair_space_.getPairIteratorWithOwnerAndKey(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key);
+
+				if(pairIterator->getType() != Pair::INVALID)
 					this->server_->my_client_session()->sendPairUpdateToClient(*pairIterator, subscriptionORCallbackMsg.subscriber);
+				else {
+					SRNP_PRINT_DEBUG << "We got subscription. But we don't send now. We haven't published it yet.";
+				}
 			}
 				
 		}
 		else
 		{
-			//pair_space_.mutexLock();
-			
 			if(subscriptionORCallbackMsg.key.compare("*") == 0)
 				pair_space_.removeSubscriptionToAll(subscriptionORCallbackMsg.subscriber);
 			else
-				pair_space_.removeSubscription(subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
-
-			//pair_space_.mutexUnlock();
+				pair_space_.removeSubscription(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
 		}
 
 		startReading();
@@ -487,7 +489,7 @@ void ServerSession::handleReadPairUpdate (const boost::system::error_code& e)
 
 		pair_space_.mutex.lock();
 		pair_space_.addPair(tuple);
-		Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithKey(tuple.getKey()))));
+		Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithOwnerAndKey(tuple.getOwner(), tuple.getKey()))));
 		pair_space_.mutex.unlock();
 
 		if(pair_space_.u_callback_ != NULL) {
@@ -697,7 +699,7 @@ void Server::onHeartbeat()
 	elapsed_time_ += boost::posix_time::seconds(1);
 	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
-	//SRNP_PRINT_TRACE << "*********************************************************";
+	SRNP_PRINT_TRACE << "*********************************************************";
 	//SRNP_PRINT_TRACE << "[SERVER] Elapsed time: " << elapsed_time_ << std::endl;
 	//SRNP_PRINT_TRACE << "[SERVER] Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
 	//SRNP_PRINT_TRACE << "[SERVER] No. of Active Sessions: " << ServerSession::session_counter;

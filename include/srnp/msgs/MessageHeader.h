@@ -38,6 +38,8 @@ struct MessageHeader
 		CALLBACK,
 		// To delete a pair in our pair-space.
 		PAIR_DELETE,
+		// To send a pair to the remote server.
+		PAIR,
 		// To pop a pair from the queue and add it to our pair space. (Local only).
 		PAIR_NOCOPY,
 		// To update a pair.

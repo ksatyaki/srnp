@@ -28,13 +28,13 @@ void ClientSession::handleConnection(Client* client, const boost::system::error_
 
 		if(is_this_our_server_session_)
 		{
-			//SRNP_PRINT_DEBUG << "Connected to Our Own Server on: " << this->socket_->remote_endpoint().port();
-			//SRNP_PRINT_TRACE << "We are on: " << this->socket_->local_endpoint().port();
+			SRNP_PRINT_DEBUG << "Connected to Our Own Server on: " << this->socket_->remote_endpoint().port();
+			SRNP_PRINT_TRACE << "We are on: " << this->socket_->local_endpoint().port();
 			boost::asio::async_read(*socket_, boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCandPairMsgs, this, client, boost::asio::placeholders::error));
 		}
 		else
 		{
-			//SRNP_PRINT_DEBUG << "Connected to a Server on: " << this->socket_->remote_endpoint().port();
+			SRNP_PRINT_DEBUG << "Connected to a Server on: " << this->socket_->remote_endpoint().port();
 			if(client == NULL)
 			{
 				SRNP_PRINT_ERROR << "NOLLE!";
@@ -61,14 +61,15 @@ ClientSession::~ClientSession() {
 
 void ClientSession::sendSubscriptionMsgs(Client* client)
 {
+	SRNP_PRINT_DEBUG << "SEND SUBSCRIPTION MSGS!" ;
 	for(std::vector<std::string>::iterator iter = client->subscribed_tuples_.begin(); iter!= client->subscribed_tuples_.end(); iter++)
 	{
-		//SRNP_PRINT_DEBUG << "SENDING SUBSCRIPTION MSG: ";
+		SRNP_PRINT_DEBUG << "SENDING SUBSCRIPTION MSG: ";
 		SubscriptionORCallback subs_msg;
 
 		subs_msg.key = *iter;
 		subs_msg.registering = true;
-		subs_msg.owner_id = -1;
+		subs_msg.owner_id = this->endpoint_owner_id_;
 		subs_msg.subscriber = client->owner_id_;
 
 		std::ostringstream data_stream;
@@ -102,20 +103,20 @@ void ClientSession::sendSubscriptionMsgs(Client* client)
 	std::map <int, std::vector<std::string> >::iterator it = client->owner_id_to_subscribed_pairs_.find(this->endpoint_owner_id_);
 
 	if(it == client->owner_id_to_subscribed_pairs_.end()) {
-		//SRNP_PRINT_DEBUG << "We aren't subscribed to any pairs from: " << this->endpoint_owner_id_;
+		SRNP_PRINT_DEBUG << "We aren't subscribed to any pairs from: " << this->endpoint_owner_id_;
 	}
 	else {
 		if(it->second.empty()) {
-			//SRNP_PRINT_DEBUG << "We used to be... but now we aren't subscribed to any pairs from: ." << this->endpoint_owner_id_;
+			SRNP_PRINT_DEBUG << "We used to be... but now we aren't subscribed to any pairs from: ." << this->endpoint_owner_id_;
 		}
 		else {
 			for(int i = 0; i < it->second.size(); i++) {
 				SubscriptionORCallback subs_msg;
 
-				///SRNP_PRINT_DEBUG << "To new guy: " << it->second[i];
+				SRNP_PRINT_DEBUG << "To new guy: " << it->second[i];
 				subs_msg.key = it->second[i];
 				subs_msg.registering = true;
-				subs_msg.owner_id = -1;
+				subs_msg.owner_id = it->first;
 				subs_msg.subscriber = client->owner_id_;
 
 				std::ostringstream data_stream;
@@ -194,7 +195,7 @@ void ClientSession::handleMMandUCandPairMsgs(Client* client, const boost::system
 			{
 				//SRNP_PRINT_DEBUG << "[CLIENT]: Adding these informations...";
 				//SRNP_PRINT_DEBUG << "[CLIENT]: PORT: " << iter->port;
-				//SRNP_PRINT_DEBUG << "[CLIENT]: OWNER: " << iter->owner;
+				//SRNP_PRINT_DEBUG << "[MM_MESSAGE FROM CLIENT]: OWNER: " << iter->owner;
 				//SRNP_PRINT_DEBUG << "[CLIENT]: IP: %s" << iter->ip;
 
 				// TODO SHARED RESOURCE??!?!?!
@@ -202,7 +203,7 @@ void ClientSession::handleMMandUCandPairMsgs(Client* client, const boost::system
 			}
 
 			//SRNP_PRINT_DEBUG << "[CLIENT]: Master message received!";
-			SRNP_PRINT_INFO << "[CLIENT]: Owner ID: " << mm.owner;
+			//SRNP_PRINT_INFO << "[CLIENT]: Owner ID: " << mm.owner;
 
 		}
 		else if(header.type == MessageHeader::UC)
@@ -215,7 +216,7 @@ void ClientSession::handleMMandUCandPairMsgs(Client* client, const boost::system
 
 			if(uc.operation == UpdateComponents::ADD)
 			{
-				//SRNP_PRINT_DEBUG << "Adding session... ( " << uc.component.ip << uc.component.port << uc.component.owner << " )";
+				SRNP_PRINT_DEBUG << "Adding session... ( " << uc.component.ip << uc.component.port << uc.component.owner << " )";
 				client->sessions_map_[uc.component.owner] = new ClientSession(client->service_, uc.component.ip, uc.component.port, false, client, uc.component.owner);
 			}
 
@@ -314,11 +315,11 @@ Client::Client(boost::asio::io_service& service, std::string our_server_ip, std:
 	my_server_session_ = boost::shared_ptr <ClientSession> (new ClientSession (service, our_server_ip, our_server_port, true, this, owner_id_));
 }
 
-bool Client::setPair(const std::string& key, const std::string& value)
+bool Client::setPair(const std::string& key, const std::string& value, const Pair::PairType& type)
 {
 	// Serialize the tuple first.
 	// So we set-up the header according to this.
-	srnp::Pair my_pair (owner_id_, key, value);
+	srnp::Pair my_pair (owner_id_, key, value, type);
 
 	std::string out_data_ = "";
 	// END
@@ -349,9 +350,70 @@ bool Client::setPair(const std::string& key, const std::string& value)
 	pair_queue_.pair_queue.push(my_pair);
 
 	//SRNP_PRINT_DEBUG << "Writing Data To Server.";
-	boost::mutex::scoped_lock wirte_lock(socket_write_mutex);
+	boost::mutex::scoped_lock wirte_lock(my_server_session_->server_write_mutex);
 	return my_server_session_->sendDataToServer(out_header_size_, out_header_, out_data_);
 
+}
+
+bool Client::setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type) {
+
+	if(sessions_map_.find(owner) == sessions_map_.end()) {
+		return false;
+	}
+	
+    // Serialize the tuple first.
+	// So we set-up the header according to this.
+	srnp::Pair my_pair (owner, key, value, type);
+
+	std::ostringstream data_archive_stream;
+	boost::archive::text_oarchive data_archive(data_archive_stream);
+	data_archive << my_pair;
+	std::string out_data_ = data_archive_stream.str();
+	// END
+
+	// Setup the message header.
+	srnp::MessageHeader header (out_data_.size(), MessageHeader::PAIR);
+	// Serialize the data first so we know how large it is.
+	std::ostringstream header_archive_stream;
+	boost::archive::text_oarchive header_archive(header_archive_stream);
+	header_archive << header;
+	std::string out_header_ = header_archive_stream.str();
+	// END
+
+	// Prepare header length
+	std::ostringstream header_size_stream;
+	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
+	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+	{
+
+	}
+	std::string  out_header_size_ = header_size_stream.str();
+	boost::mutex::scoped_lock wirte_lock(sessions_map_[owner]->server_write_mutex);
+	return sessions_map_[owner]->sendDataToServer(out_header_size_, out_header_, out_data_);
+}
+
+bool Client::setMetaPair(const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {
+	std::string value_ = std::string("(") + std::string("META ") + std::to_string(owner) + std::string(" ") + key;
+	if(meta_owner == this->owner_id_) {
+		return setPair(meta_key, value_, Pair::META);
+	}
+	else {
+		return setRemotePair(meta_owner, meta_key, value_, Pair::META);
+	}
+}
+
+bool Client::initMetaPair(const int& meta_owner, const std::string& meta_key) {
+	if(meta_owner == this->owner_id_) {
+		return setPair(meta_key, "(META -1 NULL)", Pair::META);
+	}
+	else {
+		return setRemotePair(meta_owner, meta_key, "(META -1 NULL)", Pair::META);
+	}
+}
+
+Pair::ConstPtr Client::getPair(const int& owner, const std::string& key) {
+	boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
+	return Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithOwnerAndKey(owner, key))));
 }
 
 bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscriber_only_one)
@@ -422,7 +484,7 @@ bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscrib
 	return true;
 }
 
-CallbackHandle Client::registerCallback(const std::string& key, const Pair::CallbackFunction& callback_fn)
+CallbackHandle Client::registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn)
 {
 	boost::mutex::scoped_lock pair_space_lock (this->pair_space_.mutex);
 
@@ -432,91 +494,14 @@ CallbackHandle Client::registerCallback(const std::string& key, const Pair::Call
 	}
 	
 	else {
-		return pair_space_.addCallback(key, callback_fn);
+		return pair_space_.addCallback(owner, key, callback_fn);
 	}
-		
-	/*
-	// Serialize the tuple first.
-	// So we set-up the header according to this.
-	SubscriptionORCallback callback_msg;
-
-	callback_msg.key = key;
-	callback_msg.registering = true;
-	callback_msg.owner_id = -1;
-
-	std::ostringstream data_stream;
-	boost::archive::text_oarchive data_archive (data_stream);
-	data_archive << callback_msg;
-	std::string out_data_ = data_stream.str();
-	// END
-
-	// Setup the message header.
-	srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::CALLBACK);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
-	{
-		SRNP_PRINT_FATAL << "[registerCallback]: Couldn't set stream size.";
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-
-
-	// Scoped lock!
-	boost::mutex::scoped_lock callback_queue_lock (pair_queue_.callback_queue_mutex);
-	pair_queue_.callback_queue.push(callback_fn);
-	boost::mutex::scoped_lock wirte_lock(socket_write_mutex);
-	return my_server_session_->sendDataToServer(out_header_size_, out_header_, out_data_);
-	*/
 }
 
 void Client::cancelCallback(const double& cbid)
 {
 	boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
 	pair_space_.removeCallback(cbid);
-
-	/*
-	// Serialize the tuple first.
-	// So we set-up the header according to this.
-	SubscriptionORCallback callback_msg;
-
-	callback_msg.key = key;
-	callback_msg.registering = false;
-	callback_msg.owner_id = -1;
-
-	std::ostringstream data_stream;
-	boost::archive::text_oarchive data_archive (data_stream);
-	data_archive << callback_msg;
-	std::string out_data_ = data_stream.str();
-	// END
-
-	// Setup the message header.
-	srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::CALLBACK);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
-	{
-		SRNP_PRINT_FATAL << "[cancelCallback]: Couldn't set stream size.";
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-
-	boost::mutex::scoped_lock wirte_lock(socket_write_mutex);
-	return my_server_session_->sendDataToServer(out_header_size_, out_header_, out_data_); */
 }
 
 void Client::cancelSubscription(const int& owner, const std::string& key) {
@@ -582,39 +567,39 @@ void Client::cancelSubscription(const std::string& key)
 	subscribed_tuples_.erase(key_iter);
 	// Serialize the tuple first.
 	// So we set-up the header according to this.
-	SubscriptionORCallback subs_msg;
-
-	subs_msg.key = key;
-	subs_msg.registering = false;
-	subs_msg.owner_id = -1;
-	subs_msg.subscriber = owner_id_;
-
-	std::ostringstream data_stream;
-	boost::archive::text_oarchive data_archive (data_stream);
-	data_archive << subs_msg;
-	std::string out_data_ = data_stream.str();
-	// END
-
-	// Setup the message header.
-	srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
-	{
-		SRNP_PRINT_FATAL << "[cancelSubscription]: Couldn't set stream size.";
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-
 	for(std::map <int, ClientSession*>::iterator iter = sessions_map_.begin(); iter!= sessions_map_.end(); iter++)
 	{
+		SubscriptionORCallback subs_msg;
+
+		subs_msg.key = key;
+		subs_msg.registering = false;
+		subs_msg.owner_id = iter->first;
+		subs_msg.subscriber = owner_id_;
+
+		std::ostringstream data_stream;
+		boost::archive::text_oarchive data_archive (data_stream);
+		data_archive << subs_msg;
+		std::string out_data_ = data_stream.str();
+		// END
+
+		// Setup the message header.
+		srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
+		// Serialize the data first so we know how large it is.
+		std::ostringstream header_archive_stream;
+		boost::archive::text_oarchive header_archive(header_archive_stream);
+		header_archive << header;
+		std::string out_header_ = header_archive_stream.str();
+		// END
+
+		// Prepare header length
+		std::ostringstream header_size_stream;
+		header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
+		if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+		{
+			SRNP_PRINT_FATAL << "[cancelSubscription]: Couldn't set stream size.";
+		}
+		std::string  out_header_size_ = header_size_stream.str();
+
 		boost::mutex::scoped_lock write_lock((iter->second)->server_write_mutex);
 		(iter->second)->sendDataToServer(out_header_size_, out_header_, out_data_);
 	}
@@ -632,41 +617,42 @@ SubscriptionHandle Client::registerSubscription(const std::string& key)
 
 	subscription_handle_to_key_multiple_[++subscription_handle_new_] = key;
 
-	// Serialize the tuple first.
-	// So we set-up the header according to this.
-	SubscriptionORCallback subs_msg;
-
-	subs_msg.key = key;
-	subs_msg.registering = true;
-	subs_msg.owner_id = -1;
-	subs_msg.subscriber = owner_id_;
-
-	std::ostringstream data_stream;
-	boost::archive::text_oarchive data_archive (data_stream);
-	data_archive << subs_msg;
-	std::string out_data_ = data_stream.str();
-	// END
-
-	// Setup the message header.
-	srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
-	{
-		SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-
 	for(std::map <int, ClientSession*>::iterator iter = sessions_map_.begin(); iter!= sessions_map_.end(); iter++)
 	{
+		// Serialize the tuple first.
+		// So we set-up the header according to this.
+		SubscriptionORCallback subs_msg;
+
+		subs_msg.key = key;
+		subs_msg.registering = true;
+		subs_msg.owner_id = iter->first;
+		subs_msg.subscriber = owner_id_;
+
+		std::ostringstream data_stream;
+		boost::archive::text_oarchive data_archive (data_stream);
+		data_archive << subs_msg;
+		std::string out_data_ = data_stream.str();
+		// END
+
+		// Setup the message header.
+		srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
+		// Serialize the data first so we know how large it is.
+		std::ostringstream header_archive_stream;
+		boost::archive::text_oarchive header_archive(header_archive_stream);
+		header_archive << header;
+		std::string out_header_ = header_archive_stream.str();
+		// END
+
+		// Prepare header length
+		std::ostringstream header_size_stream;
+		header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
+		if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+		{
+			SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
+		}
+		std::string  out_header_size_ = header_size_stream.str();
+
+	
 		boost::mutex::scoped_lock write_lock((iter->second)->server_write_mutex);
 		(iter->second)->sendDataToServer(out_header_size_, out_header_, out_data_);
 	}
@@ -693,8 +679,7 @@ SubscriptionHandle Client::registerSubscription(const int& owner, const std::str
 	subscription_handle_to_owner_key_[++subscription_handle_new_] = std::pair<int, std::string> (owner, key);
 
 	if(sessions_map_.find(owner) == sessions_map_.end()) {
-// ADD HERE A LIST OF TUPLES ON OWNER THAT WE ARE SUBSCRIBED TO.
-		//SRNP_PRINT_ERROR << "Not yet!";
+		SRNP_PRINT_ERROR << "Not yet!";
 		return subscription_handle_new_;
 	}
 

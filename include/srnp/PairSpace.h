@@ -39,7 +39,7 @@ class PairSpace
 	 */
 	std::vector <int> u_subscribers_;
 
-	std::map <CallbackHandle, std::string> cbid_to_key_;
+	std::map <CallbackHandle, std::pair<int, std::string> > cbid_to_key_;
 
 	CallbackHandle cbid_new_;
 
@@ -47,7 +47,7 @@ public:
 
 	Pair::CallbackFunction u_callback_;
 
-	std::string getKeyFromCBID(double cbid);
+	std::pair<int, std::string> getOwnerAndKeyFromCBID(double cbid);
 	
 	boost::mutex mutex;
 	
@@ -56,7 +56,7 @@ public:
 	/**
 	 * Remove a pair from the space using its key.
 	 */
-	void removePair(const std::string& key);
+	void removePair(const int& owner, const std::string& key);
 
 	/**
 	 * Remove a pair from the space using its iterator.
@@ -72,7 +72,7 @@ public:
 	/**
 	 * Get the pair iterator with the key. Used only in local pair space.
 	 */
-	std::vector <Pair>::iterator getPairIteratorWithKey(const std::string& key);
+	std::vector <Pair>::iterator getPairIteratorWithOwnerAndKey(const int& owner, const std::string& key);
 	
 	/**
 	 * Add a pair or update a pair in the pair-space.
@@ -82,7 +82,7 @@ public:
 	/**
 	 * Add subscription. If there is no such tuple, a new tuple is added and a subscription is added on that.
 	 */
-	void addSubscription(const std::string& key, const int& subscriber);
+	void addSubscription(const int& my_owner, const std::string& key, const int& subscriber);
 
 	/**
 	 * Add Subscription to all.
@@ -97,7 +97,7 @@ public:
 	/**
 	 * Remove subscription.
 	 */
-	void removeSubscription(const std::string& key, const int& subscriber);
+	void removeSubscription(const int& my_owner, const std::string& key, const int& subscriber);
 
 	/**
 	 * Remove callback.
@@ -107,7 +107,7 @@ public:
 	/**
 	 * Add a callback.
 	 */
-	CallbackHandle addCallback(const std::string& key, Pair::CallbackFunction callback_fn);
+	CallbackHandle addCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn);
 
 	void addCallbackToAll(Pair::CallbackFunction callback_fn);
 

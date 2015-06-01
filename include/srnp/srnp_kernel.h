@@ -49,7 +49,15 @@ namespace srnp
     /**
      * Set a pair in your pair-space.
      */
-	void setPair (const std::string& key, const std::string& value);
+	void setPair (const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+
+	void setRemotePair (const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+
+	bool setMetaPair (const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key);
+
+	bool initMetaPair (const int& meta_owner, const std::string& meta_key);
+
+	Pair::ConstPtr getPair(const int& owner, const std::string& key);
 
     /**
      * A function to initialize SRNP from python.
@@ -74,7 +82,7 @@ namespace srnp
     /**
      * Register a callback on a tuple.
      */
-	CallbackHandle registerCallback(const std::string& key, const Pair::CallbackFunction& callback_fn);
+	CallbackHandle registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn);
 
     /**
      * Cancel callback.

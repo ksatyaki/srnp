@@ -27,11 +27,12 @@ PairSpace::PairSpace () : cbid_new_(0.00)
 
 }
 
-std::string PairSpace::getKeyFromCBID(double cbid) {
+std::pair<int, std::string> PairSpace::getOwnerAndKeyFromCBID(double cbid) {
 
-	std::map<double, std::string>::iterator the_one = cbid_to_key_.find(cbid);
+	std::map<double, std::pair<int, std::string> >::iterator the_one = cbid_to_key_.find(cbid);
 	if(the_one == cbid_to_key_.end()) {
-		return "";
+		SRNP_PRINT_DEBUG << "DANGER ZONE";
+		return std::pair<int, std::string> (-1, "");
 	}
 	else
 	{
@@ -40,12 +41,12 @@ std::string PairSpace::getKeyFromCBID(double cbid) {
 }
 
 
-std::vector <Pair>::iterator PairSpace::getPairIteratorWithKey(const std::string& key)
+std::vector <Pair>::iterator PairSpace::getPairIteratorWithOwnerAndKey(const int& owner, const std::string& key)
 {
 	typedef std::vector <Pair> PairVector;
 	for(PairVector::iterator iter = pairs_.begin(); iter != pairs_.end(); iter++)
 	{
-		if(iter->getKey().compare(key) == 0)
+		if(iter->getKey().compare(key) == 0 && iter->getOwner() == owner)
 		{
 			return iter;
 		}
@@ -54,16 +55,16 @@ std::vector <Pair>::iterator PairSpace::getPairIteratorWithKey(const std::string
 	return pairs_.end();
 }
 
-CallbackHandle PairSpace::addCallback(const std::string& key, Pair::CallbackFunction callback_fn)
+CallbackHandle PairSpace::addCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn)
 {
 	this->cbid_new_ = cbid_new_ + 0.001;
-	cbid_to_key_[cbid_new_] = key;
+	cbid_to_key_[cbid_new_] = std::pair<int, std::string> (owner, key);
 	typedef std::vector <Pair> PairVector;
-	PairVector::iterator it = getPairIteratorWithKey(key);
+	PairVector::iterator it = getPairIteratorWithOwnerAndKey(owner, key);
 	if(it == pairs_.end())
 	{
-		//SRNP_PRINT_DEBUG << "Adding callback (future).";
-		Pair new_one (-1, key, "");
+		SRNP_PRINT_DEBUG << "Adding callback (future).";
+		Pair new_one (owner, key, "", Pair::INVALID);
 		new_one.callbacks_[cbid_new_] = callback_fn;
 		addPair(new_one);
 	}
@@ -94,11 +95,11 @@ void PairSpace::addCallbackToAll(Pair::CallbackFunction callback_fn)
 void PairSpace::removeCallback(const CallbackHandle& cbid)
 {
 	typedef std::vector <Pair> PairVector;
-	std::string key_of_pair = getKeyFromCBID(cbid);
+	std::pair<int, std::string> owner_and_key_of_pair = getOwnerAndKeyFromCBID(cbid);
 
-	if(key_of_pair.empty()) return;
+	if(owner_and_key_of_pair.second.empty()) return;
 	
-	PairVector::iterator it = getPairIteratorWithKey(key_of_pair);
+	PairVector::iterator it = getPairIteratorWithOwnerAndKey(owner_and_key_of_pair.first, owner_and_key_of_pair.second);
 
 //SRNP_PRINT_DEBUG << "Removing the callback.";
 	std::map<CallbackHandle, Pair::CallbackFunction>::iterator callback_iter = it->callbacks_.find(cbid);
@@ -110,28 +111,28 @@ void PairSpace::removeCallback(const CallbackHandle& cbid)
 	}
 }
 
-void PairSpace::addSubscription(const std::string& key, const int& subscriber)
+void PairSpace::addSubscription(const int& my_owner, const std::string& key, const int& subscriber)
 {
 	typedef std::vector <Pair> PairVector;
-	PairVector::iterator it = getPairIteratorWithKey(key);
-	if(it == pairs_.end())
+	PairVector::iterator itMINE = getPairIteratorWithOwnerAndKey(my_owner, key);
+	if(itMINE == pairs_.end())
 	{
 		SRNP_PRINT_DEBUG << "Adding subscription (future).";
-		Pair new_one (-1, key, "");
+		Pair new_one (my_owner, key, "", Pair::INVALID);
 		new_one.subscribers_.push_back(subscriber);
 		addPair(new_one);
 	}
 	else
 	{
 		SRNP_PRINT_DEBUG << "Adding a subscription for " << subscriber;
-		if(std::find(it->subscribers_.begin(), it->subscribers_.end(), subscriber) == it->subscribers_.end())
+		if(std::find(itMINE->subscribers_.begin(), itMINE->subscribers_.end(), subscriber) == itMINE->subscribers_.end())
 		{
 			SRNP_PRINT_DEBUG << "No subscription exists. We add one.";
-			it->subscribers_.push_back(subscriber);
+			itMINE->subscribers_.push_back(subscriber);
 		}
 		else
 		{
-			//SRNP_PRINT_DEBUG << "A subscription already exists! Did nothing.";
+			SRNP_PRINT_WARNING << "Got a second subscription message for same pair. Possible bug in code.";
 		}
 	}
 }
@@ -151,7 +152,7 @@ void PairSpace::addSubscriptionToAll(const int& subscriber)
 			
 	}
 	else
-		SRNP_PRINT_DEBUG << "Got a redundant universal subscription message.";
+		SRNP_PRINT_WARNING << "Got a redundant universal subscription message. Possible bug in code.";
 		
 }
 
@@ -191,21 +192,20 @@ void PairSpace::removeSubscriptionToAll(const int& subscriber)
 }
 
 
-void PairSpace::removeSubscription(const std::string& key, const int& subscriber)
+void PairSpace::removeSubscription(const int& my_owner, const std::string& key, const int& subscriber)
 {
 	typedef std::vector <Pair> PairVector;
-	PairVector::iterator it = getPairIteratorWithKey(key);
+	PairVector::iterator it = getPairIteratorWithOwnerAndKey(my_owner, key);
 	if(it == pairs_.end())
 	{
-		//SRNP_PRINT_DEBUG << "No pair exists. No need for cancelling subscription.";
+		SRNP_PRINT_WARNING << "[NO PAIR]: Attempting to cancel a subscription when none exists. Possible bug in code.";
 	}
 	else
 	{
-		//SRNP_PRINT_DEBUG << "Cancelling subscription on existing tuple.";
 		std::vector <int>::iterator sub_iter = std::find(it->subscribers_.begin(), it->subscribers_.end(), subscriber);
 		if(sub_iter == it->subscribers_.end())
 		{
-			//SRNP_PRINT_DEBUG << "No subscription exists. Nothing done.";
+			SRNP_PRINT_WARNING << "Attempting to cancel a subscription when none exists. Possible bug in code.";
 		}
 		else
 		{
@@ -218,10 +218,10 @@ void PairSpace::removeSubscription(const std::string& key, const int& subscriber
 
 void PairSpace::addPair(const Pair& pair)
 {
-	std::vector<Pair>::iterator iter = getPairIteratorWithKey (pair.getKey());
+	std::vector<Pair>::iterator iter = getPairIteratorWithOwnerAndKey (pair.getOwner(), pair.getKey());
 	if(iter == pairs_.end())
 	{
-		//SRNP_PRINT_DEBUG << "Adding brand NEW PAIR!";
+		SRNP_PRINT_DEBUG << "Adding brand NEW PAIR!";
 		//SRNP_PRINT_DEBUG << (pair.callback_ != NULL ? "OK HERE": "NULL");
 		//printf("Brand new pair added.\n");
 		pairs_.push_back(pair);
@@ -232,7 +232,8 @@ void PairSpace::addPair(const Pair& pair)
 	}
 	else
 	{
-		//SRNP_PRINT_DEBUG << "UPDATING A PAIR!";
+		SRNP_PRINT_DEBUG << "UPDATING A PAIR!";
+		iter->setType(pair.getType());
 		std::string value = pair.getValue();
 		iter->setOwner(pair.getOwner());
 		// Set the value.
@@ -242,9 +243,9 @@ void PairSpace::addPair(const Pair& pair)
 	}
 }
 
-void PairSpace::removePair(const std::string& key)
+void PairSpace::removePair(const int& owner, const std::string& key)
 {
-	removePair(getPairIteratorWithKey(key));
+	removePair(getPairIteratorWithOwnerAndKey(owner, key));
 }
 
 void PairSpace::printPairSpace()

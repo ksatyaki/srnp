@@ -3,16 +3,11 @@
 
 #include <srnp/srnp_kernel.h>
 
-class CallbackForTuple
+void callback_function(const srnp::Pair::ConstPtr& p)
 {
-public:
-	void callback_function(const srnp::Pair::ConstPtr& p, int a)
-	{
-		SRNP_PRINT_DEBUG << "In callback!";
-		SRNP_PRINT_DEBUG << "Tuple: " << *p;
-		SRNP_PRINT_DEBUG << "And custom value: " << a;
-	}
-};
+	SRNP_PRINT_DEBUG << "In callback!";
+	SRNP_PRINT_DEBUG << "Tuple: " << *p;
+}
 
 int main(int argn, char* args[], char* env[])
 {
@@ -23,30 +18,17 @@ int main(int argn, char* args[], char* env[])
 
 	printf("\nGo!\n");
 
-	sleep(1);
-	//srnp::printPairSpace();
+	
+	srnp::registerSubscription (1, "simple");
+    srnp::registerSubscription (2, "simple");
 
-	srnp::registerSubscription("IronMaiden");
-	srnp::registerSubscription("Googler");
-	srnp::setPair("simple.phooler", "test1____simple2");
-	sleep(1);
-	//srnp::printPairSpace();
-
-	srnp::setPair("simple.phooler", "test2___simple2");
+	/*
 	CallbackForTuple callback_object;
-	int value = 223423;
-	//srnp::registerCallback("Googler", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1, value));
-	sleep(2);
-	//srnp::printPairSpace();
-	srnp::setPair("simple.phooler", "test3___simple2");
-	srnp::setPair("simple.phooler", "test4___simple2");
-	srnp::setPair("simple.phooler", "test5__simple2");
+	*/
+	srnp::CallbackHandle cb1 = srnp::registerCallback(1, "simple", boost::bind(callback_function, _1));
+	srnp::CallbackHandle cb2 = srnp::registerCallback(2, "simple", boost::bind(callback_function, _1));
+	
 
-	sleep(1);
-
-	srnp::cancelSubscription("Googler");
-
-	sleep(1);
 	srnp::setPair("simple.phooler", "test6___simple2");
 
 	sleep(1);

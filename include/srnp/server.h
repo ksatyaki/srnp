@@ -114,7 +114,7 @@ class ServerSession
 
 	void handleReadSubscription(const boost::system::error_code& e);
 
-	void handleReadCallback(const boost::system::error_code& e);
+	void handleReadPair(const boost::system::error_code& e);
 
 	void handleWrite(const boost::system::error_code& e);
 

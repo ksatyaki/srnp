@@ -1,17 +1,17 @@
-#include <srnp/meta_tuple_callback.hpp>
+#include <srnp/meta_pair_callback.hpp>
 
 namespace srnp {
 /**
- * A map to hold the details of registered meta-tuples.
- * The meta-tuple might point to a real tuple, or might be null.
- * This map connects the {owner, meta-tuple} to the content of the tuple.
+ * A map to hold the details of registered meta-pairs.
+ * The meta-pair might point to a real pair, or might be null.
+ * This map connects the {owner, meta-pair} to the content of the pair.
  */
-std::map <TupleKey, std::string> all_metas;
+std::map <PairKey, std::string> all_metas;
 
 /**
- * A map to hold the details of all meta-tuple callbacks registered.
+ * A map to hold the details of all meta-pair callbacks registered.
  */
-std::map <TupleKey, boost::shared_ptr<MetaCallbackInfo> > meta_map;
+std::map <PairKey, boost::shared_ptr<MetaCallbackInfo> > meta_map;
 
 std::vector<std::string> extractStrings(const char p[])
 {
@@ -38,19 +38,19 @@ std::vector<std::string> extractStrings(const char p[])
 void __registerCallback(std::vector <std::string> values, MetaCallbackInfo* meta_callback_info) {
 
 	if(values.size() != 3) {
-		printf("WARNING: A meta-callback registration was attempted on a tuple that was not meta.\n");
+		printf("WARNING: A meta-callback registration was attempted on a pair that was not meta.\n");
 		meta_callback_info->hasACallback = false;
 		return;
 	}
 	else {
 		if(values[0].compare("META") != 0) {
-			printf("WARNING: A meta-callback registration was attempted on a tuple that was not meta.\n");
+			printf("WARNING: A meta-callback registration was attempted on a pair that was not meta.\n");
 			meta_callback_info->hasACallback = false;
 			return;
 		}
 		else {
 			//printf("Adding callback to:\nName: %s, Owner: %d...\n", values[2].c_str(), atoi(values[1].c_str()));
-			meta_callback_info->callback_handle = registerCallback(values[2], meta_callback_info->fn);
+			meta_callback_info->callback_handle = registerCallback(atoi(values[1].c_str()), values[2], meta_callback_info->fn);
 			meta_callback_info->hasACallback = true;
 			return;
 		}
@@ -60,13 +60,13 @@ void __registerCallback(std::vector <std::string> values, MetaCallbackInfo* meta
 void __registerSubscription(std::vector <std::string> values, MetaCallbackInfo* meta_callback_info) {
 
 	if(values.size() != 3) {
-		printf("WARNING: A meta-subscription registration was attempted on a tuple that was not meta.\n");
+		printf("WARNING: A meta-subscription registration was attempted on a pair that was not meta.\n");
 		meta_callback_info->hasASubscription = false;
 		return;
 	}
 	else {
 		if(values[0].compare("META") != 0) {
-			printf("WARNING: A meta-callback subscription was attempted on a tuple that was not meta.\n");
+			printf("WARNING: A meta-callback subscription was attempted on a pair that was not meta.\n");
 			meta_callback_info->hasASubscription = false;
 			return;
 		}
@@ -79,20 +79,20 @@ void __registerSubscription(std::vector <std::string> values, MetaCallbackInfo* 
 	}
 }
 
-void metaCallback(const Pair::ConstPtr& metatuple, MetaCallbackInfo* meta_callback_info) {
-	//printf("Saw a meta-tuple change.\n");
+void metaCallback(const Pair::ConstPtr& metapair, MetaCallbackInfo* meta_callback_info) {
+	//printf("Saw a meta-pair change.\n");
 
-	//printf("Name: %s\nOwner: %d\n", buffer, metatuple->owner);
+	//printf("Name: %s\nOwner: %d\n", buffer, metapair->owner);
 
-	TupleKey this_one(metatuple->getOwner(), metatuple->getKey());
-	std::map<TupleKey, std::string>::iterator it = all_metas.find(this_one);
+	PairKey this_one(metapair->getOwner(), metapair->getKey());
+	std::map<PairKey, std::string>::iterator it = all_metas.find(this_one);
 
 	if(it != all_metas.end()) {
-		if(it->second.compare(metatuple->getValue()) == 0) {
+		if(it->second.compare(metapair->getValue()) == 0) {
 			//printf("Callback exists, Not adding anything.\n");
 			return;
 		}
-		else if(metatuple->getValue().compare("(META -1 NULL)") == 0) {
+		else if(metapair->getValue().compare("(META -1 NULL)") == 0) {
 			//printf("Callback deleted.\n");
 
 			if(meta_map.find(this_one) == meta_map.end()) {
@@ -109,7 +109,7 @@ void metaCallback(const Pair::ConstPtr& metatuple, MetaCallbackInfo* meta_callba
 			return;
 		}
 		else {
-			all_metas[this_one] = metatuple->getValue();
+			all_metas[this_one] = metapair->getValue();
 			//printf("Callback changed!\n");
 
 			// UNREGISTER PREVIOUS.
@@ -117,65 +117,65 @@ void metaCallback(const Pair::ConstPtr& metatuple, MetaCallbackInfo* meta_callba
 			cancelSubscription(meta_map[this_one]->subscriber_handle);
 
 			// REGISTER NEW.
-			__registerCallback(extractStrings(metatuple->getValue().c_str()), meta_callback_info);
-			__registerSubscription(extractStrings(metatuple->getValue().c_str()), meta_callback_info);
+			__registerCallback(extractStrings(metapair->getValue().c_str()), meta_callback_info);
+			__registerSubscription(extractStrings(metapair->getValue().c_str()), meta_callback_info);
 		}
 	}
 
 	else {
 
-		if(std::string(metatuple->getValue()).compare("(META -1 NULL)") == 0) {
+		if(std::string(metapair->getValue()).compare("(META -1 NULL)") == 0) {
 			//printf("Nothing to do. NULL link callback.\n");
 			return;
 		}
 
-		all_metas[this_one] = metatuple->getValue();
+		all_metas[this_one] = metapair->getValue();
 		//printf("Callback added!\n");
 
 		// REGISTER NEW.
-		__registerCallback(extractStrings(metatuple->getValue().c_str()), meta_callback_info);
-		__registerSubscription(extractStrings(metatuple->getValue().c_str()), meta_callback_info);
+		__registerCallback(extractStrings(metapair->getValue().c_str()), meta_callback_info);
+		__registerSubscription(extractStrings(metapair->getValue().c_str()), meta_callback_info);
 	}
 }
 
-void registerMetaTupleCallback(const int& meta_owner_id, const std::string& meta_tuple_key, const Pair::CallbackFunction& cb) {
+void registerMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key, const Pair::CallbackFunction& cb) {
 
-	TupleKey this_tuple_key(meta_owner_id, meta_tuple_key);
+	PairKey this_pair_key(meta_owner_id, meta_pair_key);
 	
-	if(meta_map.find(this_tuple_key) != meta_map.end()) {
-		//printf("\nA meta-subscription to %s already exists. Nothing doing...\n", meta_tuple_key);
+	if(meta_map.find(this_pair_key) != meta_map.end()) {
+		//printf("\nA meta-subscription to %s already exists. Nothing doing...\n", meta_pair_key);
 		return;
 	}
 
-	meta_map[this_tuple_key] = boost::shared_ptr<MetaCallbackInfo> (new MetaCallbackInfo (cb));
+	meta_map[this_pair_key] = boost::shared_ptr<MetaCallbackInfo> (new MetaCallbackInfo (cb));
 
-	meta_map[this_tuple_key]->meta_subscriber_handle = registerSubscription(meta_owner_id, meta_tuple_key);
-	meta_map[this_tuple_key]->meta_callback_handle = registerCallback(meta_tuple_key, boost::bind(metaCallback, _1, meta_map[this_tuple_key].get()));
+	meta_map[this_pair_key]->meta_subscriber_handle = registerSubscription(meta_owner_id, meta_pair_key);
+	meta_map[this_pair_key]->meta_callback_handle = registerCallback(meta_owner_id, meta_pair_key, boost::bind(metaCallback, _1, meta_map[this_pair_key].get()));
 	//printf("Callback registerd... But may not happen till the meta is linked... \n");
 }
 
-void unregisterMetaTupleCallback(int meta_owner_id, const std::string& meta_tuple_key) {
+void cancelMetaCallback(int meta_owner_id, const std::string& meta_pair_key) {
  
-	TupleKey this_tuple_key(meta_owner_id, meta_tuple_key);	
-	std::map <TupleKey, boost::shared_ptr<MetaCallbackInfo> >::iterator it = meta_map.find(this_tuple_key);	
+	PairKey this_pair_key(meta_owner_id, meta_pair_key);	
+	std::map <PairKey, boost::shared_ptr<MetaCallbackInfo> >::iterator it = meta_map.find(this_pair_key);	
 
 	if(it != meta_map.end()) {
-		//printf("\nA meta-subscription to %s exists. Deleting...\n", meta_tuple_key);
-		if(meta_map[this_tuple_key]->hasACallback) {
-			//printf("\nA meta-callback to %s also exists. Deleting...\n", meta_tuple_key);
-		    cancelCallback(meta_map[this_tuple_key]->callback_handle);
-			if(all_metas.find(this_tuple_key) != all_metas.end())
-				all_metas.erase(all_metas.find(this_tuple_key));
+		//printf("\nA meta-subscription to %s exists. Deleting...\n", meta_pair_key);
+		if(meta_map[this_pair_key]->hasACallback) {
+			//printf("\nA meta-callback to %s also exists. Deleting...\n", meta_pair_key);
+		    cancelCallback(meta_map[this_pair_key]->callback_handle);
+			if(all_metas.find(this_pair_key) != all_metas.end())
+				all_metas.erase(all_metas.find(this_pair_key));
 			else
 				printf("!!!TERRIBLE ERROR!!!\n");
         }
 
-		if(meta_map[this_tuple_key]->hasASubscription) {
-			cancelSubscription(meta_map[this_tuple_key]->subscriber_handle);
+		if(meta_map[this_pair_key]->hasASubscription) {
+			cancelSubscription(meta_map[this_pair_key]->subscriber_handle);
 		}
 		//printf("Deleted callback\n");
-		cancelSubscription(meta_map[this_tuple_key]->meta_subscriber_handle);
-	    cancelCallback(meta_map[this_tuple_key]->meta_callback_handle);
+		cancelSubscription(meta_map[this_pair_key]->meta_subscriber_handle);
+	    cancelCallback(meta_map[this_pair_key]->meta_callback_handle);
 		meta_map.erase(it);
         //printf("DELETED!\n");
 		return;

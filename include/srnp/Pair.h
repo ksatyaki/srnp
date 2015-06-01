@@ -46,6 +46,14 @@ typedef int SubscriptionHandle;
  */
 class Pair
 {
+public:
+	enum PairType {
+		INVALID = -1,
+		STRING = 0,
+		BYTES,
+		META
+	};
+	
 protected:
 	/**
 	 * The pair object.
@@ -56,6 +64,8 @@ protected:
 	 * The owner id for this pair.
 	 */
 	int owner_;
+
+	PairType pair_type_;
 
 	/**
 	 * Write time of this Pair.
@@ -91,9 +101,10 @@ public:
 	 */
 	boost::mutex callback_mutex; 
 
-	Pair ( const int& owner, const std::string& key, const std::string& value) :
+	Pair (const int& owner, const std::string& key, const std::string& value, const PairType& type = STRING) :
 		pair_(std::pair <std::string, std::string> (key, value)),
-		owner_ (owner)
+		owner_ (owner),
+		pair_type_ (type)
 	{
 	}
 
@@ -101,9 +112,10 @@ public:
 				pair_ (pair.pair_),
 				owner_ (pair.owner_),
 				write_time_ (pair.write_time_),
-		expiry_time_ (pair.expiry_time_),
-		subscribers_ (pair.subscribers_),
-		callbacks_ (pair.callbacks_)
+				expiry_time_ (pair.expiry_time_),
+				subscribers_ (pair.subscribers_),
+				callbacks_ (pair.callbacks_),
+				pair_type_ (pair.pair_type_)
 	{
         
 
@@ -117,7 +129,7 @@ public:
         expiry_time_ = pair.expiry_time_;
 		subscribers_ = pair.subscribers_;
 		callbacks_ = pair.callbacks_;
-
+		pair_type_ = pair.pair_type_;
         return *this;
 
     }
@@ -136,6 +148,13 @@ public:
 	 * Set the value of the pair.
 	 */
 	inline void setValue(const std::string& value) { pair_.second = value; }
+
+	/** 
+	 * Set the type of a pair to STRING, BYTE OR META.
+	 *
+	 * @param type 
+	 */
+	inline void setType(const PairType& type) { pair_type_ = type; }
 
 	/**
 	 * Set the owner of the pair.
@@ -168,6 +187,11 @@ public:
 	inline std::string getValue() const { return pair_.second; }
 
 	/**
+	 * Get the type.
+	 */
+	inline PairType getType() const { return pair_type_; }
+
+	/**
 	 * Get a copy of the pair.
 	 */
 	inline std::pair <std::string, std::string> getPair () const { return pair_; }
@@ -192,6 +216,7 @@ public:
 		o_archive & pair_;
 		o_archive & write_time_;
 		o_archive & expiry_time_;
+		o_archive & pair_type_;
 	}
 
 };

@@ -1,5 +1,5 @@
-#ifndef SRNP_META_TUPLE_CALLBACK_HPP_
-#define SRNP_META_TUPLE_CALLBACK_HPP_
+#ifndef SRNP_META_PAIR_CALLBACK_HPP_
+#define SRNP_META_PAIR_CALLBACK_HPP_
 
 #include <map>
 #include <vector>
@@ -13,7 +13,7 @@
 
 namespace srnp {
 	
-	typedef std::pair <int, std::string> TupleKey;
+	typedef std::pair <int, std::string> PairKey;
 
 	struct MetaCallbackInfo {
 
@@ -30,32 +30,32 @@ namespace srnp {
 	};
 
     /** 
-     * A function that is called when the meta-tuple changes. Ideally
+     * A function that is called when the meta-pair changes. Ideally
      * this should be part of the original metaCallback in the PEIS kernel.
      * 
-     * @param metatuple The meta tuple that has changed.
+     * @param metapair The meta pair that has changed.
      * @param userdata Any user data.
      */
-	void metaCallback(const Pair::ConstPtr& metatuple, MetaCallbackInfo* meta_callback_info);
+	void metaCallback(const Pair::ConstPtr& metapair, MetaCallbackInfo* meta_callback_info);
 
     /** 
-      * A function to register a callback on the meta-tuple. 
+      * A function to register a callback on the meta-pair. 
       * 
       * @param meta_owner_id The owner id of the component that owns the
-      *                      meta-tuple.
-      * @param meta_tuple_key The key of the meta-tuple.
+      *                      meta-pair.
+      * @param meta_pair_key The key of the meta-pair.
       * @param fn The callback that should be invoked.
 	  * @param userdata The userdata to be passed.
 	  */
-	void registerMetaTupleCallback(const int& meta_owner_id, const std::string& meta_tuple_key, const Pair::CallbackFunction& cb);
+	void registerMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key, const Pair::CallbackFunction& cb);
 
      /** 
       * A function to 'un-register', i.e., cancel the meta-callback on a owner, key pair.
       * 
-      * @param meta_owner_id The owner id of the meta tuple.
-      * @param meta_tuple_key The key of the meta tuple.
+      * @param meta_owner_id The owner id of the meta pair.
+      * @param meta_pair_key The key of the meta pair.
       */
-	void unregisterMetaTupleCallback(int meta_owner_id, const std::string& meta_tuple_key);
+	void cancelMetaCallback(int meta_owner_id, const std::string& meta_pair_key);
 }
 
 #endif

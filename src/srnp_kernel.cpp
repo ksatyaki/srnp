@@ -106,19 +106,35 @@ void shutdown()
 	exit(0);
 }
 
-void setPair(const std::string& key, const std::string& value)
+void setPair(const std::string& key, const std::string& value, const Pair::PairType& type)
 {
-	KernelInstance::client_instance_->setPair(key, value);
+	KernelInstance::client_instance_->setPair(key, value, type);
 }
 
+void setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type) {
+	KernelInstance::client_instance_->setRemotePair(owner, key, value, type);
+}
+
+bool setMetaPair (const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {
+	KernelInstance::client_instance_->setMetaPair(meta_owner, meta_key, owner, key);
+}
+
+bool initMetaPair (const int& meta_owner, const std::string& meta_key) {
+	KernelInstance::client_instance_->initMetaPair(meta_owner, meta_key);	
+}
+
+Pair::ConstPtr getPair(const int& owner, const std::string& key) {
+	return KernelInstance::client_instance_->getPair(owner, key);
+}
+	
 void printPairSpace()
 {
 	KernelInstance::server_instance_->printPairSpace();
 }
 
-CallbackHandle registerCallback(const std::string& key, const Pair::CallbackFunction& callback_fn)
+CallbackHandle registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn)
 {
-	return KernelInstance::client_instance_->registerCallback(key, callback_fn);
+	return KernelInstance::client_instance_->registerCallback(owner, key, callback_fn);
 }
 
 void cancelCallback(const CallbackHandle& cbid)

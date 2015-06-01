@@ -138,7 +138,7 @@ public:
 	/**
 	 * Sends the message to the server. Async operation.
 	 */
-	bool sendDataToServer(const std::string& out_header_size, const std::string& out_header, const std::string& out_data);
+	bool sendDataToServer(const std::string& out_header_size, const std::string& out_header, const std::string& out_data); 
 
 	ClientSession(boost::asio::io_service& service, const std::string& host, const std::string& port, bool is_this_our_server_session = false, Client* client = NULL, const int& endpoint_owner_id = -10);
 	~ClientSession();
@@ -177,11 +177,16 @@ protected:
 
 	SubscriptionHandle subscription_handle_new_ ;
 
-public:
+public: 
+	bool setPair(const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+	bool setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+	
+	bool setMetaPair(const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key);
+	bool initMetaPair(const int& meta_owner, const std::string& meta_key);
 
-	bool setPair(const std::string& key, const std::string& value);
+	Pair::ConstPtr getPair(const int& owner, const std::string& key);
 
-	CallbackHandle registerCallback(const std::string& key, const Pair::CallbackFunction& callback_fn);
+	CallbackHandle registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn);
 	void cancelCallback(const CallbackHandle& cbid);
 
 	SubscriptionHandle registerSubscription (const int& owner, const std::string& key);
