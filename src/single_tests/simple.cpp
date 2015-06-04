@@ -4,13 +4,17 @@
 #include <srnp/srnp_kernel.h>
 #include <srnp/meta_pair_callback.hpp>
 
-	void callback_function(const srnp::Pair::ConstPtr& p)
+class CallbackForTuple {
+public:
+	void callback_function(const srnp::Pair::ConstPtr& p, const int a)
 	{
 		SRNP_PRINT_DEBUG << "*****************************************";
 		SRNP_PRINT_DEBUG << "In callback!";
 		SRNP_PRINT_DEBUG << "Tuple: " << *p;
+		SRNP_PRINT_DEBUG << "Value: " << a;
 		SRNP_PRINT_DEBUG << "*****************************************";
 	}
+};
 
 
 int main(int argn, char* args[], char* env[])
@@ -23,11 +27,11 @@ int main(int argn, char* args[], char* env[])
 
 	sleep(1);
 
-	//CallbackForTuple callback_object;
+	CallbackForTuple callback_object;
 	
-	srnp::registerMetaCallback(1, "simple", callback_function);
+	srnp::registerMetaCallback(1, "simple", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1, 1));
 	
-	int i = 20;
+	int i = 40;
 	
 	while(i--) {
 		SRNP_PRINT_DEBUG << i;

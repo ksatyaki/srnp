@@ -20,6 +20,8 @@
 #ifndef SRNP_PRINT_H
 #define SRNP_PRINT_H
 
+#ifdef WITH_BOOST_LOG
+
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
 #include <boost/log/utility/setup/console.hpp>
@@ -35,11 +37,27 @@
 #define SRNP_PRINT_ERROR BOOST_LOG_TRIVIAL(error)
 #define SRNP_PRINT_FATAL BOOST_LOG_TRIVIAL(fatal)
 
+#else
+
+#include <iostream>
+
+#define SRNP_PRINT_TRACE std::cout << std::endl << "(TRACE): "
+#define SRNP_PRINT_INFO std::cout << std::endl << "(INFO): "
+#define SRNP_PRINT_DEBUG std::cout << std::endl << "(DEBUG): "
+#define SRNP_PRINT_WARNING std::cout << std::endl << "(WARNING): "
+#define SRNP_PRINT_ERROR std::cout << std::endl << "(ERROR): "
+#define SRNP_PRINT_FATAL std::cout << std::endl << "(FATAL): "
+
+
+#endif
+
 namespace srnp
 {
 
+#ifdef WITH_BOOST_LOG
 BOOST_LOG_ATTRIBUTE_KEYWORD(severity, "Severity", boost::log::trivial::severity_level)
 BOOST_LOG_ATTRIBUTE_KEYWORD(timestamp, "TimeStamp", boost::posix_time::ptime)
+#endif
 
 void srnp_print_setup(const std::string& str_level = "");
 

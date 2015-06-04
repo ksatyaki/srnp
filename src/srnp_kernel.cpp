@@ -63,7 +63,8 @@ void initialize(int argn, char* args[], char* env[])
 			else
 			{
 				SRNP_PRINT_ERROR << "You have used the \'owner-id\' option but didn't specify one. That's criminal!";
-				shutdown();
+				exit(0);
+				//shutdown();
 			}
 		}
 
@@ -81,11 +82,12 @@ void initialize(int argn, char* args[], char* env[])
 					*KernelInstance::pair_queue_,
 					desired_owner_id));
 
-	std::stringstream server_port;
-	server_port << KernelInstance::server_instance_->getPort();
+	boost::shared_array <char> buffer = boost::shared_array<char>(new char[10]);
+	sprintf(buffer.get(), "%d", KernelInstance::server_instance_->getPort());
+	
 	KernelInstance::client_instance_ = boost::shared_ptr <Client> (new Client(*KernelInstance::io_service_,
 																			  "127.0.0.1",
-																			  server_port.str(),
+																			  std::string(buffer.get()),
 																			  *KernelInstance::pair_space_,
 																			  *KernelInstance::pair_queue_));
 
@@ -116,11 +118,11 @@ void setRemotePair(const int& owner, const std::string& key, const std::string& 
 }
 
 bool setMetaPair (const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {
-	KernelInstance::client_instance_->setMetaPair(meta_owner, meta_key, owner, key);
+	return KernelInstance::client_instance_->setMetaPair(meta_owner, meta_key, owner, key);
 }
 
 bool initMetaPair (const int& meta_owner, const std::string& meta_key) {
-	KernelInstance::client_instance_->initMetaPair(meta_owner, meta_key);	
+	return KernelInstance::client_instance_->initMetaPair(meta_owner, meta_key);	
 }
 
 Pair::ConstPtr getPair(const int& owner, const std::string& key) {

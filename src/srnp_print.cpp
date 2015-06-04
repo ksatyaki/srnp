@@ -24,6 +24,8 @@ namespace srnp
 
 void srnp_print_setup(const std::string& str_level)
 {
+	
+#ifdef WITH_BOOST_LOG
 	boost::log::trivial::severity_level level;
 
 	if(str_level.compare ("debug") == 0 || str_level.compare ("DEBUG") == 0)
@@ -50,6 +52,7 @@ void srnp_print_setup(const std::string& str_level)
 	    		boost::log::expressions::stream << "[SRNP | "<< boost::log::expressions::format_date_time(timestamp, "%H:%M:%S %d-%m-%Y") <<"] (" << severity << "): " << boost::log::expressions::smessage
 	    )
 	);
+#endif
 }
 
 }

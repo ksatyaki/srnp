@@ -393,7 +393,9 @@ bool Client::setRemotePair(const int& owner, const std::string& key, const std::
 }
 
 bool Client::setMetaPair(const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {
-	std::string value_ = std::string("(") + std::string("META ") + std::to_string(owner) + std::string(" ") + key;
+	boost::shared_array <char> buffer = boost::shared_array<char>(new char[100]);
+	sprintf(buffer.get(), "(META %d ", owner);
+	std::string value_ = std::string(buffer.get()) + key;
 	if(meta_owner == this->owner_id_) {
 		return setPair(meta_key, value_, Pair::META);
 	}

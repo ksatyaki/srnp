@@ -63,7 +63,7 @@ CallbackHandle PairSpace::addCallback(const int& owner, const std::string& key, 
 	PairVector::iterator it = getPairIteratorWithOwnerAndKey(owner, key);
 	if(it == pairs_.end())
 	{
-		SRNP_PRINT_DEBUG << "Adding callback (future).";
+		//SRNP_PRINT_DEBUG << "Adding callback (future).";
 		Pair new_one (owner, key, "", Pair::INVALID);
 		new_one.callbacks_[cbid_new_] = callback_fn;
 		addPair(new_one);
@@ -117,17 +117,17 @@ void PairSpace::addSubscription(const int& my_owner, const std::string& key, con
 	PairVector::iterator itMINE = getPairIteratorWithOwnerAndKey(my_owner, key);
 	if(itMINE == pairs_.end())
 	{
-		SRNP_PRINT_DEBUG << "Adding subscription (future).";
+		//SRNP_PRINT_DEBUG << "Adding subscription (future).";
 		Pair new_one (my_owner, key, "", Pair::INVALID);
 		new_one.subscribers_.push_back(subscriber);
 		addPair(new_one);
 	}
 	else
 	{
-		SRNP_PRINT_DEBUG << "Adding a subscription for " << subscriber;
+		//SRNP_PRINT_DEBUG << "Adding a subscription for " << subscriber;
 		if(std::find(itMINE->subscribers_.begin(), itMINE->subscribers_.end(), subscriber) == itMINE->subscribers_.end())
 		{
-			SRNP_PRINT_DEBUG << "No subscription exists. We add one.";
+			//SRNP_PRINT_DEBUG << "No subscription exists. We add one.";
 			itMINE->subscribers_.push_back(subscriber);
 		}
 		else
@@ -221,7 +221,7 @@ void PairSpace::addPair(const Pair& pair)
 	std::vector<Pair>::iterator iter = getPairIteratorWithOwnerAndKey (pair.getOwner(), pair.getKey());
 	if(iter == pairs_.end())
 	{
-		SRNP_PRINT_DEBUG << "Adding brand NEW PAIR!";
+		//SRNP_PRINT_DEBUG << "Adding brand NEW PAIR!";
 		//SRNP_PRINT_DEBUG << (pair.callback_ != NULL ? "OK HERE": "NULL");
 		//printf("Brand new pair added.\n");
 		pairs_.push_back(pair);
@@ -232,7 +232,7 @@ void PairSpace::addPair(const Pair& pair)
 	}
 	else
 	{
-		SRNP_PRINT_DEBUG << "UPDATING A PAIR!";
+		//SRNP_PRINT_DEBUG << "UPDATING A PAIR!";
 		iter->setType(pair.getType());
 		std::string value = pair.getValue();
 		iter->setOwner(pair.getOwner());

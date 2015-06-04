@@ -33,6 +33,7 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 	tcp::resolver::iterator endpoint_iterator_ = resolver_.resolve(query);
 
 	try {
+		//SRNP_PRINT_DEBUG << "HERE NOW!";
 		boost::asio::connect(socket_, endpoint_iterator_);
 	} catch (std::exception& ex) {
 		SRNP_PRINT_FATAL << "Exception when trying to connect to master: " << ex.what();
@@ -411,7 +412,7 @@ void ServerSession::handleReadSubscription(const boost::system::error_code& e)
 		boost::archive::text_iarchive data_archive(data_stream);
 		SubscriptionORCallback subscriptionORCallbackMsg;
 		data_archive >> subscriptionORCallbackMsg;
-		SRNP_PRINT_DEBUG << "We got a subscription request: " << subscriptionORCallbackMsg.subscriber << ", " << subscriptionORCallbackMsg.key;
+		//SRNP_PRINT_DEBUG << "We got a subscription request: " << subscriptionORCallbackMsg.subscriber << ", " << subscriptionORCallbackMsg.key;
 
 		if(subscriptionORCallbackMsg.owner_id != this->owner_ && subscriptionORCallbackMsg.key.compare("*") != 0){
 			SRNP_PRINT_WARNING << "Got a subscription/cancellation message, not meant for us, but for: " << subscriptionORCallbackMsg.owner_id;
@@ -652,7 +653,7 @@ void Server::startSpinThreads()
 {
 	for(int i = 0; i < 4; i++)
 		spin_thread_[i] = boost::thread (boost::bind(&boost::asio::io_service::run, &io_service_));
-	//SRNP_PRINT_DEBUG << "Four separate listening threads have started.";
+	SRNP_PRINT_DEBUG << "Four separate listening threads have started.";
 }
 
 void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>& client_session, int desired_owner_id, const boost::system::error_code& e)
@@ -699,10 +700,10 @@ void Server::onHeartbeat()
 	elapsed_time_ += boost::posix_time::seconds(1);
 	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
 	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
-	SRNP_PRINT_TRACE << "*********************************************************";
+	//SRNP_PRINT_TRACE << "*********************************************************";
 	//SRNP_PRINT_TRACE << "[SERVER] Elapsed time: " << elapsed_time_ << std::endl;
-	//SRNP_PRINT_TRACE << "[SERVER] Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
-	//SRNP_PRINT_TRACE << "[SERVER] No. of Active Sessions: " << ServerSession::session_counter;
+	//SRNP_PRINT_DEBUG << "[SERVER] Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
+	//SRNP_PRINT_DEBUG << "[SERVER] No. of Active Sessions: " << ServerSession::session_counter;
 	//SRNP_PRINT_TRACE << "*********************************************************";
 }
 
