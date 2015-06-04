@@ -2,19 +2,23 @@ cmake_minimum_required (VERSION 2.8 FATAL_ERROR)
 
 project (srnp)
 
-ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
-find_package (Boost REQUIRED 
-    COMPONENTS
-    thread
-    system
-    serialization
-    date_time
-    log
-    log_setup
-    python
+find_package (Boost
+  COMPONENTS
+  thread
+  system
+  serialization
+  date_time
+  log
+  log_setup
 )
 
-SET( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -std=c++0x")
+if(Boost_LOG_FOUND)
+  add_definitions(-DWITH_BOOST_LOG)
+  ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
+  message("Boost log found. We will now build SRNP_PRINT to use boost log.")
+else(Boost_LOG_FOUND)
+  message("Boost.Log not found. SRNP_PRINT messages are simply std::couts. ")
+endif()
 
 # BOOST PYTHON
 include_directories(/usr/include/python2.7)
