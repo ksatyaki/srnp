@@ -58,9 +58,9 @@ class MasterHubSession
 
 	std::vector <char> in_data_;
 
-	boost::array <char, sizeof(size_t)> in_buffer_;
+	boost::array <char, sizeof(uint64_t)> in_buffer_;
 
-	boost::array <char, sizeof(size_t)> in_size_;
+	boost::array <char, sizeof(uint64_t)> in_size_;
 
 public:
 	void handleRead(MasterHub* master, const boost::system::error_code& e);
@@ -71,9 +71,9 @@ public:
 
 	inline std::vector <char>& in_data() { return in_data_; }
 
-	inline boost::array <char, sizeof(size_t)>& in_buffer() { return in_buffer_; }
+	inline boost::array <char, sizeof(uint64_t)>& in_buffer() { return in_buffer_; }
 
-	inline boost::array <char, sizeof(size_t)>& in_size() { return in_size_; }
+	inline boost::array <char, sizeof(uint64_t)>& in_size() { return in_size_; }
 
 	inline int getOwner() { return owner_; }
 

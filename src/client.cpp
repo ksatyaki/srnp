@@ -89,8 +89,8 @@ void ClientSession::sendSubscriptionMsgs(Client* client)
 
 		// Prepare header length
 		std::ostringstream header_size_stream;
-		header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-		if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+		header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+		if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 		{
 			SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
 		}
@@ -136,8 +136,8 @@ void ClientSession::sendSubscriptionMsgs(Client* client)
 
 				// Prepare header length
 				std::ostringstream header_size_stream;
-				header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-				if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+				header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+				if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 				{
 					SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
 				}
@@ -154,9 +154,9 @@ void ClientSession::handleMMandUCandPairMsgs(Client* client, const boost::system
 {
 	if(!error)
 	{
-		size_t header_size;
+		uint64_t header_size;
 		// Deserialize the length.
-		std::istringstream size_stream(std::string(in_size_.elems, sizeof(size_t)));
+		std::istringstream size_stream(std::string(in_size_.elems, sizeof(uint64_t)));
 		size_stream >> std::hex >> header_size;
 		//
 		in_header_.resize (header_size);
@@ -335,8 +335,8 @@ bool Client::setPair(const std::string& key, const std::string& value, const Pai
 
 	// Prepare header length
 	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 	{
 
 	}
@@ -382,8 +382,8 @@ bool Client::setRemotePair(const int& owner, const std::string& key, const std::
 
 	// Prepare header length
 	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 	{
 
 	}
@@ -439,8 +439,8 @@ bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscrib
 
 	// Prepare header length
 	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 	{
 		SRNP_PRINT_FATAL << "[setPairUpdate]: Couldn't set stream size.";
 	}
@@ -545,8 +545,8 @@ void Client::cancelSubscription(const int& owner, const std::string& key) {
 
 	// Prepare header length
 	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 	{
 		SRNP_PRINT_FATAL << "[cancelSubscription]: Couldn't set stream size.";
 	}
@@ -595,8 +595,8 @@ void Client::cancelSubscription(const std::string& key)
 
 		// Prepare header length
 		std::ostringstream header_size_stream;
-		header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-		if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+		header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+		if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 		{
 			SRNP_PRINT_FATAL << "[cancelSubscription]: Couldn't set stream size.";
 		}
@@ -647,8 +647,8 @@ SubscriptionHandle Client::registerSubscription(const std::string& key)
 
 		// Prepare header length
 		std::ostringstream header_size_stream;
-		header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-		if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+		header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+		if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 		{
 			SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
 		}
@@ -711,8 +711,8 @@ SubscriptionHandle Client::registerSubscription(const int& owner, const std::str
 
 	// Prepare header length
 	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 	{
 		SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
 	}

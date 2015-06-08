@@ -70,7 +70,7 @@ protected:
 	/**
 	 * To receive the size.
 	 */
-	boost::array <char, sizeof(size_t)> in_size_;
+	boost::array <char, sizeof(uint64_t)> in_size_;
 
 	/**
 	 * To receive the header.

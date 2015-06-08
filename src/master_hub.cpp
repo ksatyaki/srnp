@@ -108,7 +108,7 @@ void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const b
 		boost::system::error_code errore;
 		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_size()), errore);
 
-		size_t size_of_port;
+		uint64_t size_of_port;
 		std::istringstream port_size_stream(std::string(new_session->in_size().elems, new_session->in_size().size()));
 		port_size_stream >> std::hex >> size_of_port;
 
@@ -190,8 +190,8 @@ void MasterHub::sendUpdateComponentsMessageToAll(UpdateComponents msg)
 
 		// Prepare header length
 		std::ostringstream size_stream;
-		size_stream << std::setw(sizeof(size_t)) << std::hex << out_msg_.size();
-		if (!size_stream || size_stream.str().size() != sizeof(size_t))
+		size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_msg_.size();
+		if (!size_stream || size_stream.str().size() != sizeof(uint64_t))
 		{
 			SRNP_PRINT_FATAL << "Couldn't set stream size.";
 		}
@@ -217,8 +217,8 @@ void MasterHub::sendMasterMessageToComponent(MasterHubSession *new_session, Mast
 
 	// Prepare header length
 	std::ostringstream size_stream;
-	size_stream << std::setw(sizeof(size_t)) << std::hex << out_msg_.size();
-	if (!size_stream || size_stream.str().size() != sizeof(size_t))
+	size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_msg_.size();
+	if (!size_stream || size_stream.str().size() != sizeof(uint64_t))
 	{
 		SRNP_PRINT_FATAL << "Couldn't set stream size.";
 	}

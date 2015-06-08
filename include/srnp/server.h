@@ -56,7 +56,7 @@ class MasterLink
 	 */
 	MasterMessage mm_;
 
-	boost::array <char, sizeof(size_t)> in_size_;
+	boost::array <char, sizeof(uint64_t)> in_size_;
 
 	std::string master_ip_;
 
@@ -100,7 +100,7 @@ class ServerSession
 
 	std::string out_header_;
 
-	boost::array <char, sizeof(size_t)> in_header_size_buffer_;
+	boost::array <char, sizeof(uint64_t)> in_header_size_buffer_;
 
 	std::vector <char> in_header_buffer_;
 

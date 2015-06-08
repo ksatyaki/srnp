@@ -48,7 +48,7 @@ MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, 
 
 	boost::asio::read (socket_, boost::asio::buffer(in_size_));
 
-	size_t data_size;
+	uint64_t data_size;
 	// Deserialize the length.
 	std::istringstream size_stream(std::string(in_size_.elems, in_size_.size()));
 	size_stream >> std::hex >> data_size;
@@ -109,7 +109,7 @@ void MasterLink::indicatePresence(Server* server, int desired_owner_id)
 
 	// SEND THE PORT WE ARE ON, FIRST. MOST IMPORTANT.
 	std::ostringstream size_stream;
-	size_stream << std::setw(sizeof(size_t)) << std::hex << out_indicate_msg.size();
+	size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_indicate_msg.size();
 	std::string out_size = size_stream.str();
 
 	boost::system::error_code error_co;
@@ -135,7 +135,7 @@ void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
 {
 	if(!e)
 	{
-		size_t data_size;
+		uint64_t data_size;
 
 		std::istringstream size_stream (std::string(in_size_.elems, in_size_.size()));
 		size_stream >> std::hex >> data_size;
@@ -199,9 +199,9 @@ void ServerSession::handleReadHeaderSize (const boost::system::error_code& e)
 
 	if(!e)
 	{
-		size_t header_size;
+		uint64_t header_size;
 		// Deserialize the length.
-		std::istringstream headersize_stream(std::string(in_header_size_buffer_.elems, sizeof(size_t)));
+		std::istringstream headersize_stream(std::string(in_header_size_buffer_.elems, sizeof(uint64_t)));
 		headersize_stream >> std::hex >> header_size;
 		//
 
@@ -221,7 +221,7 @@ void ServerSession::handleReadHeader (const boost::system::error_code& e)
 
 	if(!e)
 	{
-		size_t data_size;
+		uint64_t data_size;
 		// Deserialize the length.
 		std::istringstream header_stream(std::string(in_header_buffer_.data(), in_header_buffer_.size()));
 		boost::archive::text_iarchive header_archive(header_stream);
@@ -315,8 +315,8 @@ void ServerSession::sendPairUpdateToClient(const Pair& to_up, int sub_only_one)
 
 		// Prepare header length
 		std::ostringstream header_size_stream;
-		header_size_stream << std::setw(sizeof(size_t))	<< std::hex << out_header_.size();
-		if (!header_size_stream || header_size_stream.str().size() != sizeof(size_t))
+		header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
+		if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
 		{
 			SRNP_PRINT_FATAL << "[sendPairUpdate]: Couldn't set stream size!";
 		}
@@ -548,8 +548,8 @@ boost::system::error_code ServerSession::sendMasterMsgToOurClient(MasterMessage 
 
 	// Prepare header length
 	std::ostringstream size_stream;
-	size_stream << std::setw(sizeof(size_t)) << std::hex << out_header_.size();
-	if (!size_stream || size_stream.str().size() != sizeof(size_t))
+	size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_header_.size();
+	if (!size_stream || size_stream.str().size() != sizeof(uint64_t))
 	{
 		// Something went wrong, inform the caller.
 		/*
@@ -601,8 +601,8 @@ boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(Upda
 
 	// Prepare header length
 	std::ostringstream size_stream;
-	size_stream << std::setw(sizeof(size_t)) << std::hex << out_header_.size();
-	if (!size_stream || size_stream.str().size() != sizeof(size_t))
+	size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_header_.size();
+	if (!size_stream || size_stream.str().size() != sizeof(uint64_t))
 	{
 		SRNP_PRINT_FATAL << "Couldn't set stream size.";
 	}

@@ -66,7 +66,7 @@ struct MessageHeader
 	 * The entire length of the Message excluding the header.
 	 * The length of the header is fixed.
 	 */
-	size_t length;
+	uint64_t length;
 
 	/**
 	 * The type of the message.
@@ -89,7 +89,7 @@ struct MessageHeader
 
 	MessageHeader(): length(0), type(INVALID) { }
 
-	MessageHeader (const size_t& Length, const MessageType& Type): length (Length), type(Type) { }
+	MessageHeader (const uint64_t& Length, const MessageType& Type): length (Length), type(Type) { }
 
 };
 
