@@ -55,6 +55,11 @@ std::vector <Pair>::iterator PairSpace::getPairIteratorWithOwnerAndKey(const int
 	return pairs_.end();
 }
 
+bool PairSpace::isEnd(const std::vector <Pair>::iterator& iter_to_check) {
+	if(iter_to_check == pairs_.end()) { true; }
+	else { false; }
+}
+
 CallbackHandle PairSpace::addCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn)
 {
 	this->cbid_new_ = cbid_new_ + 0.001;

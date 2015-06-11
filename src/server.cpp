@@ -370,9 +370,7 @@ void ServerSession::handleReadPair(const boost::system::error_code& e)
 		boost::archive::text_iarchive data_archive(data_stream);
 	    Pair tuple;
 		data_archive >> tuple;
-		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
-
-	    tuple.setOwner(owner_);
+		tuple.setOwner(owner_);
 
 		pair_space_.mutex.lock();
 		pair_space_.addPair(tuple);

@@ -13,28 +13,6 @@ std::map <PairKey, std::string> all_metas;
  */
 std::map <PairKey, boost::shared_ptr<MetaCallbackInfo> > meta_map;
 
-std::vector<std::string> extractStrings(const char p[])
-{
-	char *copyOfString = new char[strlen(p) + 1];
-	strcpy(copyOfString, p);
-
-	std::vector<std::string> _values;
-
-	char *pch;
-	int cmd_args = 0;
-
-	pch = strtok (copyOfString," )(");
-	while (pch != NULL)
-	{
-		cmd_args++;
-		_values.push_back(pch);
-		pch = strtok (NULL, " )(");
-	}
-
-	delete copyOfString;
-	return _values;
-}
-
 void __registerCallback(std::vector <std::string> values, MetaCallbackInfo* meta_callback_info) {
 
 	if(values.size() != 3) {
@@ -102,7 +80,8 @@ void metaCallback(const Pair::ConstPtr& metapair, MetaCallbackInfo* meta_callbac
 			meta_map[this_one]->hasASubscription = false;
 			meta_map[this_one]->hasACallback = false;
 			// Unregister old callback.
-			cancelCallback(meta_map[this_one]->callback_handle);
+			if(meta_map[this_one]->fn)
+				cancelCallback(meta_map[this_one]->callback_handle);
 			cancelSubscription(meta_map[this_one]->subscriber_handle);
 			all_metas.erase(it);
 			
@@ -113,11 +92,13 @@ void metaCallback(const Pair::ConstPtr& metapair, MetaCallbackInfo* meta_callbac
 			//printf("Callback changed!\n");
 
 			// UNREGISTER PREVIOUS.
-			cancelCallback(meta_map[this_one]->callback_handle);
+			if(meta_map[this_one]->fn)
+				cancelCallback(meta_map[this_one]->callback_handle);
 			cancelSubscription(meta_map[this_one]->subscriber_handle);
 
 			// REGISTER NEW.
-			__registerCallback(extractStrings(metapair->getValue().c_str()), meta_callback_info);
+			if(meta_map[this_one]->fn)
+				__registerCallback(extractStrings(metapair->getValue().c_str()), meta_callback_info);
 			__registerSubscription(extractStrings(metapair->getValue().c_str()), meta_callback_info);
 		}
 	}
@@ -133,7 +114,8 @@ void metaCallback(const Pair::ConstPtr& metapair, MetaCallbackInfo* meta_callbac
 		//printf("Callback added!\n");
 
 		// REGISTER NEW.
-		__registerCallback(extractStrings(metapair->getValue().c_str()), meta_callback_info);
+		if(meta_map[this_one]->fn)
+			__registerCallback(extractStrings(metapair->getValue().c_str()), meta_callback_info);
 		__registerSubscription(extractStrings(metapair->getValue().c_str()), meta_callback_info);
 	}
 }
@@ -144,6 +126,7 @@ void registerMetaCallback(const int& meta_owner_id, const std::string& meta_pair
 	
 	if(meta_map.find(this_pair_key) != meta_map.end()) {
 		//printf("\nA meta-subscription to %s already exists. Nothing doing...\n", meta_pair_key);
+		meta_map[this_pair_key]->fn = cb;
 		return;
 	}
 
@@ -154,7 +137,23 @@ void registerMetaCallback(const int& meta_owner_id, const std::string& meta_pair
 	//printf("Callback registerd... But may not happen till the meta is linked... \n");
 }
 
-void cancelMetaCallback(int meta_owner_id, const std::string& meta_pair_key) {
+void registerMetaSubscription(const int& meta_owner_id, const std::string& meta_pair_key) {
+
+	PairKey this_pair_key(meta_owner_id, meta_pair_key);
+	
+	if(meta_map.find(this_pair_key) != meta_map.end()) {
+		//printf("\nA meta-subscription to %s already exists. Nothing doing...\n", meta_pair_key);
+		return;
+	}
+
+	meta_map[this_pair_key] = boost::shared_ptr<MetaCallbackInfo> (new MetaCallbackInfo (NULL));
+
+	meta_map[this_pair_key]->meta_subscriber_handle = registerSubscription(meta_owner_id, meta_pair_key);
+	meta_map[this_pair_key]->meta_callback_handle = registerCallback(meta_owner_id, meta_pair_key, boost::bind(metaCallback, _1, meta_map[this_pair_key].get()));
+	//printf("Callback registerd... But may not happen till the meta is linked... \n");
+}
+
+void cancelMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key) {
  
 	PairKey this_pair_key(meta_owner_id, meta_pair_key);	
 	std::map <PairKey, boost::shared_ptr<MetaCallbackInfo> >::iterator it = meta_map.find(this_pair_key);	
@@ -183,6 +182,10 @@ void cancelMetaCallback(int meta_owner_id, const std::string& meta_pair_key) {
 	else {
 		//printf("No subscription exists.\n");
 	}
+}
+
+void cancelMetaSubscription(const int& meta_owner_id, const std::string& meta_pair_key) {
+	cancelMetaCallback(meta_owner_id, meta_pair_key);
 }
 
 }

@@ -49,13 +49,17 @@ namespace srnp {
 	  */
 	void registerMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key, const Pair::CallbackFunction& cb);
 
+	void registerMetaSubscription(const int& meta_owner_id, const std::string& meta_pair_key);
+
+	void cancelMetaSubscription(const int& meta_owner_id, const std::string& meta_pair_key);
+
      /** 
       * A function to 'un-register', i.e., cancel the meta-callback on a owner, key pair.
       * 
       * @param meta_owner_id The owner id of the meta pair.
       * @param meta_pair_key The key of the meta pair.
       */
-	void cancelMetaCallback(int meta_owner_id, const std::string& meta_pair_key);
+	void cancelMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key);
 }
 
 #endif

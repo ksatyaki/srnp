@@ -49,15 +49,19 @@ namespace srnp
     /**
      * Set a pair in your pair-space.
      */
-	void setPair (const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+	bool setPair (const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
 
-	void setRemotePair (const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+	bool setRemotePair (const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
 
 	bool setMetaPair (const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key);
 
 	bool initMetaPair (const int& meta_owner, const std::string& meta_key);
 
 	Pair::ConstPtr getPair(const int& owner, const std::string& key);
+
+	Pair::ConstPtr getPairIndirectly(const int& metaowner, const std::string& metakey);
+
+    bool setPairIndirectly(const int& metaowner, const std::string& metakey, const std::string& value);
 
     /**
      * A function to initialize SRNP from python.

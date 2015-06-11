@@ -73,6 +73,9 @@ target_link_libraries (simple_callback srnp_kernel)
 add_executable (simple2 src/single_tests/simple2.cpp)
 target_link_libraries (simple2 srnp_kernel)
 
+add_executable (testGetTupleIndirectly src/single_tests/testGetTupleIndirectly.cc)
+target_link_libraries (testGetTupleIndirectly srnp_kernel srnp_meta_pair_callback)
+
 install (DIRECTORY include/srnp DESTINATION "include")
 install (TARGETS srnp_print srnp_pair srnp_pair_space srnp_server srnp_client srnp_kernel srnp_meta_pair_callback DESTINATION "lib")
 install (TARGETS srnp-master DESTINATION "bin")

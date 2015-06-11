@@ -48,7 +48,7 @@ void initialize(int argn, char* args[], char* env[])
 	if( getenv("SRNP_MASTER_IP") == NULL || getenv("SRNP_MASTER_PORT") == NULL)
 	{
 		SRNP_PRINT_INFO << "Missing environment variables \'SRNP_MASTER_IP\' and/or \'SRNP_MASTER_PORT\'. Please check.";
-		shutdown();
+	    exit(0);
 	}
 	std::string srnp_master_ip = getenv("SRNP_MASTER_IP");
 	std::string srnp_master_port = getenv("SRNP_MASTER_PORT");
@@ -91,6 +91,12 @@ void initialize(int argn, char* args[], char* env[])
 																			  *KernelInstance::pair_space_,
 																			  *KernelInstance::pair_queue_));
 
+	while(!KernelInstance::client_instance_->ready()) {
+		usleep(100);
+	}
+
+	printf("\n*****************\nSRNP NODE STARTED\nName: %s\nOwner ID: %d\n*****************\n", args[0], getOwnerID());
+
 }
 
 void shutdown()
@@ -108,13 +114,22 @@ void shutdown()
 	exit(0);
 }
 
-void setPair(const std::string& key, const std::string& value, const Pair::PairType& type)
+bool setPair(const std::string& key, const std::string& value, const Pair::PairType& type)
 {
-	KernelInstance::client_instance_->setPair(key, value, type);
+	return KernelInstance::client_instance_->setPair(key, value, type);
 }
 
-void setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type) {
-	KernelInstance::client_instance_->setRemotePair(owner, key, value, type);
+Pair::ConstPtr getPairIndirectly(const int& metaowner, const std::string& metakey) {
+	return KernelInstance::client_instance_->getPairIndirectly(metaowner, metakey);
+}
+
+	bool setPairIndirectly(const int& metaowner, const std::string& metakey, const std::string& value) {
+		return KernelInstance::client_instance_->setPairIndirectly(metaowner, metakey, value);
+}
+
+
+bool setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type) {
+	return KernelInstance::client_instance_->setRemotePair(owner, key, value, type);
 }
 
 bool setMetaPair (const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {

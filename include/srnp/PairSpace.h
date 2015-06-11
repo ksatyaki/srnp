@@ -53,6 +53,8 @@ public:
 	
 	PairSpace();
 
+	bool isEnd(const std::vector <Pair>::iterator& iter_to_check);
+
 	/**
 	 * Remove a pair from the space using its key.
 	 */

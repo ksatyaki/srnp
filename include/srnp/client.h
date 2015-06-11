@@ -165,6 +165,8 @@ protected:
 
 	int owner_id_;
 
+	bool ready_;
+
 	boost::shared_ptr <ClientSession> my_server_session_;
 
 	boost::asio::io_service& service_;
@@ -179,14 +181,17 @@ protected:
 
 	SubscriptionHandle subscription_handle_new_ ;
 
-public: 
+public:
+	inline bool ready() { return ready_; }
 	bool setPair(const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
 	bool setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+	bool setPairIndirectly(const int& metaowner, const std::string& metakey, const std::string& value);
 	
 	bool setMetaPair(const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key);
 	bool initMetaPair(const int& meta_owner, const std::string& meta_key);
 
 	Pair::ConstPtr getPair(const int& owner, const std::string& key);
+	Pair::ConstPtr getPairIndirectly(const int& metaowner, const std::string& metakey);
 
 	CallbackHandle registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn);
 	void cancelCallback(const CallbackHandle& cbid);
@@ -202,6 +207,8 @@ public:
 
 	virtual ~Client();
 };
+
+std::vector<std::string> extractStrings(const char p[]);
 
 } /* namespace srnp */
 

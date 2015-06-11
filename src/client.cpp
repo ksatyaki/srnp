@@ -190,6 +190,8 @@ void ClientSession::handleMMandUCandPairMsgs(Client* client, const boost::system
 			data_archive >> mm;
 			this->endpoint_owner_id_ = mm.owner;
 			client->owner_id_ = mm.owner;
+
+			client->ready_ = true;
 			
 			for(std::vector <ComponentInfo>::iterator iter = mm.all_components.begin(); iter != mm.all_components.end(); iter++)
 			{
@@ -313,6 +315,7 @@ Client::Client(boost::asio::io_service& service, std::string our_server_ip, std:
 		subscription_handle_new_ (0)
 {
 	my_server_session_ = boost::shared_ptr <ClientSession> (new ClientSession (service, our_server_ip, our_server_port, true, this, owner_id_));
+	ready_ = false;
 }
 
 bool Client::setPair(const std::string& key, const std::string& value, const Pair::PairType& type)
@@ -392,6 +395,81 @@ bool Client::setRemotePair(const int& owner, const std::string& key, const std::
 	return sessions_map_[owner]->sendDataToServer(out_header_size_, out_header_, out_data_);
 }
 
+std::vector<std::string> extractStrings(const char p[])
+{
+	char *copyOfString = new char[strlen(p) + 1];
+	strcpy(copyOfString, p);
+
+	std::vector<std::string> _values;
+
+	char *pch;
+	int cmd_args = 0;
+
+	pch = strtok (copyOfString," )(");
+	while (pch != NULL)
+	{
+		cmd_args++;
+		_values.push_back(pch);
+		pch = strtok (NULL, " )(");
+	}
+
+	delete copyOfString;
+	return _values;
+}
+
+Pair::ConstPtr Client::getPairIndirectly(const int& metaowner, const std::string& metakey) {
+	Pair::ConstPtr metapair = getPair(metaowner, metakey);
+	if(!metapair) {
+		SRNP_PRINT_WARNING << "(In getPairIndirectly/getStringTupleIndirectly): Nullptr when trying to get a meta-pair. Have you subscribed to this meta-pair?";
+		return Pair::ConstPtr();
+	}
+
+	// Obvious else
+	std::vector <std::string> parts = extractStrings(metapair->getValue().c_str());
+	if(parts.size() == 3) {
+		if(parts[0].compare("META") == 0) {
+			return Client::getPair(atoi(parts[1].c_str()), parts[2]);
+		}
+		else {
+			SRNP_PRINT_WARNING << "getPairIndirectly()/getTupleIndirectly() called on a non-meta pair.";
+			return Pair::ConstPtr();
+		}
+	}
+	else {
+		SRNP_PRINT_WARNING << "getPairIndirectly()/getTupleIndirectly() called on a non-meta pair.";
+		return Pair::ConstPtr();
+	}
+}
+
+bool Client::setPairIndirectly(const int& metaowner, const std::string& metakey, const std::string& value) {
+	Pair::ConstPtr metapair = getPair(metaowner, metakey);
+	if(!metapair) {
+		SRNP_PRINT_WARNING << "(In setPairIndirectly/setStringTupleIndirectly): Nullptr when trying to get a meta-pair. Have you subscribed to this meta-pair?";
+		return false;
+	}
+
+	// Obvious else
+	std::vector <std::string> parts = extractStrings(metapair->getValue().c_str());
+	if(parts.size() == 3) {
+		if(parts[0].compare("META") == 0) {
+			if(atoi(parts[1].c_str()) == this->owner_id_) {
+				return Client::setPair(parts[2], value);
+			}
+			else {
+				return Client::setRemotePair(atoi(parts[1].c_str()), parts[2], value);
+			}
+		}
+		else {
+			SRNP_PRINT_WARNING << "setPairIndirectly()/setTupleIndirectly() called on a non-meta pair.";
+			return false;
+		}
+	}
+	else {
+		SRNP_PRINT_WARNING << "setPairIndirectly()/setTupleIndirectly() called on a non-meta pair.";
+		return false;
+	}
+}
+
 bool Client::setMetaPair(const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {
 	boost::shared_array <char> buffer = boost::shared_array<char>(new char[100]);
 	sprintf(buffer.get(), "(META %d ", owner);
@@ -415,7 +493,13 @@ bool Client::initMetaPair(const int& meta_owner, const std::string& meta_key) {
 
 Pair::ConstPtr Client::getPair(const int& owner, const std::string& key) {
 	boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
-	return Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithOwnerAndKey(owner, key))));
+	std::vector <Pair>::iterator iter = pair_space_.getPairIteratorWithOwnerAndKey(owner, key);
+	if(!pair_space_.isEnd(iter)) {
+		return Pair::ConstPtr(new Pair(*(iter)));
+	}
+	else {
+		return Pair::ConstPtr();
+	}
 }
 
 bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscriber_only_one)

@@ -28,6 +28,8 @@ int main(int argn, char* args[], char* env[])
 	sleep(1);
 
 	CallbackForTuple callback_object;
+
+	srnp::setRemotePair(1, "ok", "OKOK");
 	
 	srnp::registerMetaCallback(1, "simple", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1, 1));
 	
@@ -45,6 +47,9 @@ int main(int argn, char* args[], char* env[])
 		SRNP_PRINT_DEBUG << i;
 		usleep(500000);
 	}
+
+	srnp::setRemotePair(1, "ok", "OKOK");
+	SRNP_PRINT_DEBUG << "HERE";
 	
 	srnp::shutdown();
 	return 0;
