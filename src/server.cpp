@@ -332,8 +332,8 @@ void ServerSession::sendPairUpdateToClient(const Pair& to_up, int sub_only_one)
 
 		//SRNP_PRINT_DEBUG << "Writing Data To Client.";
 
-		boost::mutex::scoped_lock write_lock (socket_write_mutex);
-		this->sendDataToClient (out_header_size_, out_header_, out_data_);
+		boost::mutex::scoped_lock write_lock (server_->my_client_session()->socket_write_mutex);
+		server_->my_client_session()->sendDataToClient (out_header_size_, out_header_, out_data_);
 		//SRNP_PRINT_DEBUG << "SEND DATA pui - pair update";
 	}
 	//else

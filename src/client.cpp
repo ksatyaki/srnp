@@ -61,10 +61,10 @@ ClientSession::~ClientSession() {
 
 void ClientSession::sendSubscriptionMsgs(Client* client)
 {
-	SRNP_PRINT_DEBUG << "SEND SUBSCRIPTION MSGS!" ;
+	//SRNP_PRINT_DEBUG << "SEND SUBSCRIPTION MSGS!" ;
 	for(std::vector<std::string>::iterator iter = client->subscribed_tuples_.begin(); iter!= client->subscribed_tuples_.end(); iter++)
 	{
-		SRNP_PRINT_DEBUG << "SENDING SUBSCRIPTION MSG: ";
+		//SRNP_PRINT_DEBUG << "SENDING SUBSCRIPTION MSG: ";
 		SubscriptionORCallback subs_msg;
 
 		subs_msg.key = *iter;
@@ -103,11 +103,11 @@ void ClientSession::sendSubscriptionMsgs(Client* client)
 	std::map <int, std::vector<std::string> >::iterator it = client->owner_id_to_subscribed_pairs_.find(this->endpoint_owner_id_);
 
 	if(it == client->owner_id_to_subscribed_pairs_.end()) {
-		SRNP_PRINT_DEBUG << "We aren't subscribed to any pairs from: " << this->endpoint_owner_id_;
+		//SRNP_PRINT_DEBUG << "We aren't subscribed to any pairs from: " << this->endpoint_owner_id_;
 	}
 	else {
 		if(it->second.empty()) {
-			SRNP_PRINT_DEBUG << "We used to be... but now we aren't subscribed to any pairs from: ." << this->endpoint_owner_id_;
+			//SRNP_PRINT_DEBUG << "We used to be... but now we aren't subscribed to any pairs from: ." << this->endpoint_owner_id_;
 		}
 		else {
 			for(int i = 0; i < it->second.size(); i++) {
@@ -473,7 +473,7 @@ bool Client::setPairIndirectly(const int& metaowner, const std::string& metakey,
 bool Client::setMetaPair(const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {
 	boost::shared_array <char> buffer = boost::shared_array<char>(new char[100]);
 	sprintf(buffer.get(), "(META %d ", owner);
-	std::string value_ = std::string(buffer.get()) + key;
+	std::string value_ = std::string(buffer.get()) + key + std::string(")");
 	if(meta_owner == this->owner_id_) {
 		return setPair(meta_key, value_, Pair::META);
 	}
@@ -539,7 +539,7 @@ bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscrib
 		{
 			boost::mutex::scoped_lock write_lock(client->sessions_map_[subscriber_only_one]->server_write_mutex);
 			client->sessions_map_[subscriber_only_one]->sendDataToServer(out_header_size_, out_header_, out_data_);
-			SRNP_PRINT_DEBUG << " Only one data sentings.";
+			//SRNP_PRINT_DEBUG << " Only one data sentings.";
 		}
 		else
 		{

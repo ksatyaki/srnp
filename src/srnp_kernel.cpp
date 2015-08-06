@@ -45,6 +45,8 @@ void initialize_py (const std::string& ip, const std::string& port)
 
 void initialize(int argn, char* args[], char* env[])
 {
+	srnp::srnp_print_setup("INFO");
+	
 	if( getenv("SRNP_MASTER_IP") == NULL || getenv("SRNP_MASTER_PORT") == NULL)
 	{
 		SRNP_PRINT_INFO << "Missing environment variables \'SRNP_MASTER_IP\' and/or \'SRNP_MASTER_PORT\'. Please check.";
