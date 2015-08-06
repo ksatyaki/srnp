@@ -475,10 +475,10 @@ bool Client::setMetaPair(const int& meta_owner, const std::string& meta_key, con
 	sprintf(buffer.get(), "(META %d ", owner);
 	std::string value_ = std::string(buffer.get()) + key + std::string(")");
 	if(meta_owner == this->owner_id_) {
-		return setPair(meta_key, value_, Pair::META);
+		return setPair(meta_key, value_, Pair::STRING);
 	}
 	else {
-		return setRemotePair(meta_owner, meta_key, value_, Pair::META);
+		return setRemotePair(meta_owner, meta_key, value_, Pair::STRING);
 	}
 }
 
@@ -765,7 +765,7 @@ SubscriptionHandle Client::registerSubscription(const int& owner, const std::str
 	subscription_handle_to_owner_key_[++subscription_handle_new_] = std::pair<int, std::string> (owner, key);
 
 	if(sessions_map_.find(owner) == sessions_map_.end()) {
-		SRNP_PRINT_ERROR << "Not yet!";
+		//SRNP_PRINT_ERROR << "Not yet!";
 		return subscription_handle_new_;
 	}
 
