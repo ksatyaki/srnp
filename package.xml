@@ -1,8 +1,4 @@
 <?xml version="1.0"?>
-
-<!-- USE THIS FILE IF YOU INTEND TO BUILD SRNP AS A CATKIN-PACKAGE -->
-<!-- THIS EASES THE DEPENDENCY RESOLUTION -->
-<!-- JUST ADD find_package (catkin REQUIRED COMPONENTS srnp) to the dependent package's CMakeLists.txt -->
 <package>
   <name>srnp</name>
   <version>0.1.0</version>
@@ -11,8 +7,15 @@
   <maintainer email="chitt@live.in">Chittaranjan Srinivas Swaminathan</maintainer>
   <license>GPLv3</license>
 
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>cmake</buildtool_depend>
+
+  <build_depend>cmake</build_depend>
+  <build_depend>boost</build_depend>
+
+  <run_depend>cmake</run_depend>
+  <run_depend>boost</run_depend>
 
   <export>
+    <build_type>cmake</build_type>
   </export>
 </package>

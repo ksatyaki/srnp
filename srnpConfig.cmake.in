@@ -1,0 +1,25 @@
+# CMake srnp module
+#
+# It defines the following variables:
+# SRNP_FOUND         - TRUE
+# SRNP_INCLUDE_DIRS  - The SRNP include directory
+# SRNP_LIBRARIES     - The SRNP library
+# SRNP_VERSION       - The SRNP version in the form <major>.<minor>.<patchlevel>
+# SRNP_MAJOR_VERSION - Major version
+# SRNP_MINOR_VERSION - Minor version
+# SRNP_PATCH_VERSION - Patch version
+
+@PACKAGE_INIT@
+
+set(SRNP_VERSION @PROJECT_VERSION@)
+set(SRNP_MAJOR_VERSION @PROJECT_VERSION_MAJOR@)
+set(SRNP_MINOR_VERSION @PROJECT_VERSION_MINOR@)
+set(SRNP_PATCH_VERSION @PROJECT_VERSION_PATCH@)
+
+set_and_check(SRNP_INCLUDE_DIRS @PACKAGE_INCLUDE_INSTALL_DIR@)
+set_and_check(SRNP_LIBRARY_DIR @PACKAGE_LIB_INSTALL_DIR@)
+find_library(SRNP_LIBRARIES NAMES srnp.${SRNP_VERSION} srnp
+    PATHS ${SRNP_LIBRARY_DIR} NO_DEFAULT_PATH)
+
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(srnp DEFAULT_MSG SRNP_INCLUDE_DIRS SRNP_LIBRARIES)
