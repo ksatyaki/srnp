@@ -2,9 +2,9 @@
   // Serves the MkDocs output as a static-asset Worker. There is no script:
   // a Worker with only an "assets" block needs no code behind it.
   //
-  // "name" must match the Worker already created in the dashboard, or
-  // `wrangler deploy` makes a second one alongside it.
-  "name": "srnp-docs",
+  // Must match the Worker in the dashboard, or `wrangler deploy` makes a
+  // second one alongside it rather than updating that one.
+  "name": "srnp",
   "compatibility_date": "2026-09-22",
   "assets": {
     // Built by `mkdocs build`, which the Workers build command runs first.
