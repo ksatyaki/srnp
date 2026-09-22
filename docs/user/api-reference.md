@@ -163,8 +163,11 @@ fires. Subscriptions accept `kAnyOwner`; callbacks do not.
 A callback on another component's pair needs a subscription behind it. The
 subscription is what delivers the value; the callback only reacts.
 
-Callbacks run on an srnp io thread, outside the pair-space lock. Several may run
-at once on different threads, so anything a callback touches needs its own
+Callbacks run on an srnp io thread, outside the pair-space lock, and never on
+the thread that called `setPair`. Callbacks for pairs this node publishes run
+one at a time and in publish order. A callback for a pair arriving from another
+component runs on that connection's thread, so it may run at the same time as
+one for a different component — anything a callback touches needs its own
 locking.
 
 ### `registerCallback(owner, "*", fn)` — the wildcard form
@@ -173,12 +176,11 @@ Passing `"*"` as the key registers `fn` for **every** pair the node applies,
 whatever its owner or key, and ignores the `owner` argument entirely. Use it when
 the publisher's id is not known in advance and filter inside the callback.
 
-Two things to know:
+It returns a real handle, like any other callback, and `cancelCallback` takes it.
+Register as many wildcard callbacks as you like; each runs on every pair.
 
-- **It returns `kInvalidCallbackHandle`, so it can never be cancelled.** There is
-  no handle and `cancelCallback` has nothing to work with.
-- There is only one of it. Registering a second wildcard callback replaces the
-  first.
+Before 0.3 this form returned `kInvalidCallbackHandle` and could never be
+cancelled, and a second registration silently replaced the first.
 
 ### `void cancelCallback(CallbackHandle handle)`
 

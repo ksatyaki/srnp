@@ -33,6 +33,11 @@
 
 namespace srnp {
 
+/// How many frames to hold for a peer that has stopped reading. At the cap,
+/// pair updates coalesce by key and then drop oldest-first; a connection with
+/// nothing droppable left is closed rather than allowed to grow.
+constexpr std::size_t kMaxOutboxFrames = 4096;
+
 FrameChannel::FrameChannel(tcp::socket socket, Strand strand)
     : socket_(std::move(socket)), strand_(std::move(strand)) {
   configure(socket_);
@@ -57,17 +62,58 @@ asio::awaitable<Frame> FrameChannel::read() {
   co_return frame;
 }
 
-void FrameChannel::send(std::vector<std::byte> frame) {
+bool FrameChannel::makeRoomLocked(const std::optional<PairKey>& coalesce_key,
+                                  std::vector<std::byte>& frame) {
+  if (outbox_.size() < kMaxOutboxFrames) return false;
+
+  // This key is already waiting: overwrite it rather than queue a second
+  // copy. The subscriber has not seen the older value and never will.
+  if (coalesce_key) {
+    if (const auto it = coalescable_.find(*coalesce_key); it != coalescable_.end()) {
+      it->second->bytes = std::move(frame);
+      return true;
+    }
+  }
+
+  // Otherwise make room by dropping the oldest frame that is safe to drop.
+  for (auto it = outbox_.begin(); it != outbox_.end(); ++it) {
+    if (!it->coalesce_key) continue;
+    coalescable_.erase(*it->coalesce_key);
+    outbox_.erase(it);
+    return false;
+  }
+
+  // Nothing in the queue may be dropped, so the peer is far enough behind
+  // that we cannot serve it without lying about what it has received.
+  SRNP_WARN("a peer is {} frames behind with nothing droppable; closing the connection",
+            outbox_.size());
+  return false;
+}
+
+void FrameChannel::send(std::vector<std::byte> frame, std::optional<PairKey> coalesce_key) {
   if (isClosed()) {
     SRNP_DEBUG("dropping a frame for a closed connection");
     return;
   }
 
+  bool overfull = false;
   {
     std::lock_guard lock(outbox_mutex_);
-    outbox_.push_back(std::move(frame));
-    if (writing_) return;  // The running drain will pick it up.
-    writing_ = true;
+    if (makeRoomLocked(coalesce_key, frame)) return;  // Replaced in place.
+
+    if (outbox_.size() >= kMaxOutboxFrames) {
+      overfull = true;
+    } else {
+      outbox_.push_back(Outbound{std::move(frame), coalesce_key});
+      if (coalesce_key) coalescable_.insert_or_assign(*coalesce_key, std::prev(outbox_.end()));
+      if (writing_) return;  // The running drain will pick it up.
+      writing_ = true;
+    }
+  }
+
+  if (overfull) {
+    close();
+    return;
   }
 
   asio::co_spawn(strand_, [self = shared_from_this()] { return self->drainOutbox(); },
@@ -83,7 +129,8 @@ asio::awaitable<void> FrameChannel::drainOutbox() {
         writing_ = false;
         co_return;
       }
-      next = std::move(outbox_.front());
+      next = std::move(outbox_.front().bytes);
+      if (outbox_.front().coalesce_key) coalescable_.erase(*outbox_.front().coalesce_key);
       outbox_.pop_front();
     }
 
@@ -96,11 +143,19 @@ asio::awaitable<void> FrameChannel::drainOutbox() {
       SRNP_DEBUG("write failed, dropping queued frames: {}", error.message());
       std::lock_guard lock(outbox_mutex_);
       outbox_.clear();
+      coalescable_.clear();
       writing_ = false;
       co_return;
     }
   }
 }
+
+std::size_t FrameChannel::outboxSize() const {
+  std::lock_guard lock(outbox_mutex_);
+  return outbox_.size();
+}
+
+std::size_t FrameChannel::maxOutboxFrames() { return kMaxOutboxFrames; }
 
 void FrameChannel::close() {
   if (closed_.exchange(true, std::memory_order_acq_rel)) return;
@@ -108,6 +163,7 @@ void FrameChannel::close() {
   {
     std::lock_guard lock(outbox_mutex_);
     outbox_.clear();
+    coalescable_.clear();
   }
 
   // Closing the socket here would race a read or write already in flight on

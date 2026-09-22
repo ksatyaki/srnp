@@ -134,3 +134,25 @@ srnp began as a reimplementation of the PEIS Kernel. For anyone coming from it:
 
 The concepts were taken, not the code or the wire format. The two do not
 interoperate.
+
+## Delivery
+
+A pair is a value, not an event stream. Subscribers are told when it changes,
+but srnp promises only that a subscriber converges on the **current** value —
+not that it sees every value the publisher passed through.
+
+That distinction only becomes visible under load. Each connection holds a
+bounded send queue. While a subscriber keeps up it receives every update. Once
+it falls far enough behind that the queue fills, a new update for a key already
+waiting **replaces** it: the subscriber never sees the superseded value. In a
+saturating benchmark on one key, roughly three in four published values are
+superseded this way.
+
+This is what a blackboard means, and it is what keeps a publisher from growing
+without limit behind a subscriber that has stopped reading. Subscriptions and
+deletions are never dropped — only pair values coalesce, because only a pair
+value has a newer version that makes the older one redundant.
+
+If you need every intermediate value, put a sequence number in the value and
+have the subscriber detect the gaps, or send events through something built for
+events.

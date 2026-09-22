@@ -78,13 +78,12 @@ std::vector<std::string> extractStrings(std::string_view text) {
 /** CLIENT SESSION **/
 
 ClientSession::ClientSession(asio::io_context& io, std::string host, std::string port,
-                             Client& client, bool is_our_own_server, int endpoint_owner_id)
+                             Client& client, int endpoint_owner_id)
     : io_(io),
       strand_(asio::make_strand(io)),
       host_(std::move(host)),
       port_(std::move(port)),
       client_(client),
-      is_our_own_server_(is_our_own_server),
       endpoint_owner_id_(endpoint_owner_id) {}
 
 asio::awaitable<bool> ClientSession::connect() {
@@ -107,7 +106,7 @@ asio::awaitable<bool> ClientSession::connect() {
 
   auto channel = std::make_shared<FrameChannel>(std::move(socket), strand_);
 
-  std::deque<std::vector<std::byte>> waiting;
+  std::deque<Pending> waiting;
   {
     std::lock_guard lock(channel_mutex_);
     // close() may have run while we were connecting. Adopting the channel
@@ -121,7 +120,8 @@ asio::awaitable<bool> ClientSession::connect() {
   }
 
   // Anything queued while we were connecting goes out first, in order.
-  for (auto& frame : waiting) channel->send(std::move(frame));
+  for (auto& queued : waiting)
+    channel->send(std::move(queued.bytes), std::move(queued.coalesce_key));
   co_return true;
 }
 
@@ -131,120 +131,16 @@ asio::awaitable<void> ClientSession::run() {
 
   while (!closing_.load(std::memory_order_relaxed)) {
     if (!co_await connect()) {
-      // Our own server is in this process, so failing to reach it is fatal
-      // rather than something to retry.
-      if (is_our_own_server_) {
-        SRNP_FATAL("cannot connect to our own server on {}:{}", host_, port_);
-        co_return;
-      }
       retry.expires_after(kReconnectDelay);
       co_await retry.async_wait(asio::as_tuple(asio::use_awaitable));
       continue;
     }
 
     SRNP_DEBUG("connected to {}:{}", host_, port_);
-
-    if (!is_our_own_server_) {
-      // A component we only push to. Tell it what we want, then idle.
-      sendSubscriptionsFor(endpoint_owner_id_);
-      co_return;
-    }
-
-    // Tell our server which connection we are; other components' clients
-    // connect to the same acceptor.
-    send(wire::frame(wire::MessageType::AttachClient));
-
-    co_await readLoop();
+    // Tell the component what we want from it, then idle. We never read
+    // from this socket: its owner pushes to our server, not down this one.
+    sendSubscriptionsFor(endpoint_owner_id_);
     co_return;
-  }
-}
-
-asio::awaitable<void> ClientSession::readLoop() {
-  FrameChannelPtr channel;
-  {
-    std::lock_guard lock(channel_mutex_);
-    channel = channel_;
-  }
-  if (!channel) co_return;  // Closed before we got going.
-
-  try {
-    for (;;) {
-      const auto frame = co_await channel->read();
-      switch (frame.header.type) {
-        case wire::MessageType::MasterMessage: handleMasterMessage(frame); break;
-        case wire::MessageType::UpdateComponents: handleUpdateComponents(frame); break;
-        case wire::MessageType::PairUpdate:
-        case wire::MessageType::PairUpdateOne: handlePairUpdate(frame); break;
-        case wire::MessageType::PairRemoved: handlePairRemoved(frame); break;
-        default:
-          throw wire::DecodeError("a client cannot handle this message type");
-      }
-    }
-  } catch (const std::exception& e) {
-    if (!closing_.load(std::memory_order_relaxed))
-      SRNP_ERROR("lost the connection to our own server: {}", e.what());
-  }
-}
-
-void ClientSession::handleMasterMessage(const Frame& frame) {
-  const auto message = decodePayload<MasterMessage>(frame.bytes());
-  endpoint_owner_id_ = message.owner;
-  client_.onMasterMessage(message.owner, message.all_components);
-}
-
-void ClientSession::handleUpdateComponents(const Frame& frame) {
-  const auto message = decodePayload<UpdateComponents>(frame.bytes());
-
-  if (message.operation == UpdateComponents::Operation::Add) {
-    SRNP_DEBUG("component {} joined at {}:{}", message.component.owner, message.component.ip,
-               message.component.port);
-    client_.addSession(message.component);
-  } else {
-    SRNP_DEBUG("component {} left", message.component.owner);
-    client_.removeSession(message.component.owner);
-  }
-}
-
-void ClientSession::handlePairUpdate(const Frame& frame) {
-  auto pair = client_.pair_queue_.updates.pop();
-  if (!pair) {
-    SRNP_ERROR("got a pair update notification with nothing queued behind it");
-    return;
-  }
-
-  const int only = frame.header.type == wire::MessageType::PairUpdateOne
-                       ? frame.header.subscriber
-                       : kAnyOwner;
-  forwardPairUpdate(*pair, only);
-}
-
-void ClientSession::handlePairRemoved(const Frame& frame) {
-  // Our server names one subscriber per frame, so this only has to relay it.
-  const auto message = decodePayload<RemovePairRequest>(frame.bytes());
-  const int subscriber = frame.header.subscriber;
-
-  if (auto session = client_.sessionFor(subscriber))
-    session->send(wire::frameOf(wire::MessageType::PairRemoved, message));
-  else
-    SRNP_WARN("subscriber {} is not connected", subscriber);
-}
-
-void ClientSession::forwardPairUpdate(const Pair& pair, int only_subscriber) {
-  const auto payload = wire::frameOf(wire::MessageType::PairUpdate, pair);
-
-  if (only_subscriber != kAnyOwner) {
-    if (auto session = client_.sessionFor(only_subscriber))
-      session->send(payload);
-    else
-      SRNP_WARN("subscriber {} is not connected", only_subscriber);
-    return;
-  }
-
-  for (const int subscriber : pair.subscribers_) {
-    if (auto session = client_.sessionFor(subscriber))
-      session->send(payload);
-    else
-      SRNP_WARN("subscriber {} is not connected", subscriber);
   }
 }
 
@@ -260,7 +156,8 @@ void ClientSession::sendSubscriptionsFor(int owner) {
   }
 }
 
-void ClientSession::send(std::vector<std::byte> frame) {
+void ClientSession::send(std::vector<std::byte> frame,
+                         std::optional<PairKey> coalesce_key) {
   if (closing_.load(std::memory_order_relaxed)) return;
 
   // One critical section throughout: checking the channel and queueing in
@@ -269,7 +166,7 @@ void ClientSession::send(std::vector<std::byte> frame) {
   std::lock_guard lock(channel_mutex_);
 
   if (channel_) {
-    channel_->send(std::move(frame));
+    channel_->send(std::move(frame), std::move(coalesce_key));
     return;
   }
 
@@ -279,7 +176,7 @@ void ClientSession::send(std::vector<std::byte> frame) {
     SRNP_WARN("{}:{} is still unreachable; dropping the oldest queued frame", host_, port_);
     pending_.pop_front();
   }
-  pending_.push_back(std::move(frame));
+  pending_.push_back(Pending{std::move(frame), std::move(coalesce_key)});
 }
 
 void ClientSession::close() {
@@ -296,16 +193,8 @@ void ClientSession::close() {
 
 /** CLIENT **/
 
-Client::Client(asio::io_context& io, std::string our_server_ip, std::string our_server_port,
-               PairSpace& pair_space, PairQueue& pair_queue)
-    : io_(io), pair_space_(pair_space), pair_queue_(pair_queue) {
-  // ready_ is already false, so the session below can flip it the moment
-  // the master message arrives without the constructor racing it back.
-  my_server_session_ = std::make_shared<ClientSession>(io_, std::move(our_server_ip),
-                                                       std::move(our_server_port), *this, true,
-                                                       kAnyOwner);
-  asio::co_spawn(my_server_session_->strand(), my_server_session_->run(), asio::detached);
-}
+Client::Client(asio::io_context& io, PairSpace& pair_space)
+    : io_(io), pair_space_(pair_space), callback_strand_(asio::make_strand(io)) {}
 
 Client::~Client() { close(); }
 
@@ -318,7 +207,6 @@ void Client::close() {
   }
 
   for (auto& session : sessions) session->close();
-  if (my_server_session_) my_server_session_->close();
 }
 
 bool Client::waitUntilReady(std::chrono::milliseconds timeout) {
@@ -326,9 +214,9 @@ bool Client::waitUntilReady(std::chrono::milliseconds timeout) {
   return ready_changed_.wait_for(lock, timeout, [this] { return ready(); });
 }
 
-void Client::onMasterMessage(int owner_id, const std::vector<ComponentInfo>& components) {
-  owner_id_.store(owner_id, std::memory_order_relaxed);
-  for (const auto& component : components) addSession(component);
+void Client::onWelcome(const MasterMessage& welcome) {
+  owner_id_.store(welcome.owner, std::memory_order_relaxed);
+  for (const auto& component : welcome.all_components) addSession(component);
 
   {
     std::lock_guard lock(ready_mutex_);
@@ -337,9 +225,55 @@ void Client::onMasterMessage(int owner_id, const std::vector<ComponentInfo>& com
   ready_changed_.notify_all();
 }
 
+void Client::onComponentUpdate(const UpdateComponents& update) {
+  if (update.operation == UpdateComponents::Operation::Add) {
+    SRNP_DEBUG("component {} joined at {}:{}", update.component.owner, update.component.ip,
+               update.component.port);
+    addSession(update.component);
+  } else {
+    SRNP_DEBUG("component {} left", update.component.owner);
+    removeSession(update.component.owner);
+  }
+}
+
+void Client::fanOutPair(const Pair& pair, std::span<const int> subscribers) {
+  const auto payload = wire::frameOf(wire::MessageType::PairUpdate, pair);
+  // A pair update is last-value-wins, so a subscriber that falls behind gets
+  // this one in place of whatever it had not read yet for the same key.
+  const PairKey key{pair.getOwner(), pair.getKey()};
+  for (const int subscriber : subscribers) {
+    if (auto session = sessionFor(subscriber))
+      session->send(payload, key);
+    else
+      SRNP_WARN("subscriber {} is not connected", subscriber);
+  }
+}
+
+void Client::fanOutRemoval(const RemovePairRequest& request, std::span<const int> subscribers) {
+  const auto payload = wire::frameOf(wire::MessageType::PairRemoved, request);
+  for (const int subscriber : subscribers) {
+    if (auto session = sessionFor(subscriber))
+      session->send(payload);
+    else
+      SRNP_WARN("subscriber {} is not connected", subscriber);
+  }
+}
+
+void Client::notifyLocal(Pair::ConstPtr snapshot,
+                         std::vector<std::shared_ptr<const Pair::CallbackFunction>> callbacks) {
+  if (callbacks.empty()) return;
+
+  // Posted rather than called here: setPair must not run user code on its
+  // caller's thread, and one strand keeps two rapid publishes in order.
+  asio::post(callback_strand_,
+             [snapshot = std::move(snapshot), callbacks = std::move(callbacks)] {
+               for (const auto& callback : callbacks) (*callback)(snapshot);
+             });
+}
+
 void Client::addSession(const ComponentInfo& component) {
-  auto session = std::make_shared<ClientSession>(io_, component.ip, component.port, *this, false,
-                                                 component.owner);
+  auto session =
+      std::make_shared<ClientSession>(io_, component.ip, component.port, *this, component.owner);
   {
     std::lock_guard lock(state_mutex_);
     // A component reusing an owner id replaces the stale session.
@@ -390,15 +324,28 @@ std::vector<Client::SubscriptionRecord> Client::subscriptionsFor(int owner) cons
 }
 
 bool Client::setPair(std::string_view key, std::string_view value, Pair::Type type) {
-  if (!my_server_session_) return false;
+  if (!ready()) return false;
 
-  Pair pair(ownerId(), std::string(key), std::string(value), type);
+  const Pair incoming(ownerId(), std::string(key), std::string(value), type);
 
-  // The pair goes through the queue rather than the socket; the empty frame
-  // just tells our server there is one waiting.
-  auto guard = pair_queue_.outgoing.lock();
-  pair_queue_.outgoing.push(std::move(pair));
-  my_server_session_->send(wire::frame(wire::MessageType::PairNoCopy));
+  Pair::ConstPtr snapshot;
+  std::vector<std::shared_ptr<const Pair::CallbackFunction>> callbacks;
+  {
+    // Applying, reading the subscriber list and queueing the frames all
+    // happen under this one lock. Split it and two threads publishing the
+    // same key can queue their frames in the opposite order to the one they
+    // applied in, and the subscriber ends up holding the older value.
+    std::lock_guard lock(pair_space_.mutex);
+    const PairEntry& entry = pair_space_.addPair(incoming);
+    if (!entry.subscribers.empty()) fanOutPair(entry.pair, entry.subscribers);
+    snapshot = std::make_shared<const Pair>(entry.pair);
+
+    callbacks = pair_space_.universalCallbacks();
+    callbacks.reserve(callbacks.size() + entry.callbacks.size());
+    for (const auto& [handle, callback] : entry.callbacks) callbacks.push_back(callback);
+  }
+
+  notifyLocal(std::move(snapshot), std::move(callbacks));
   return true;
 }
 
@@ -416,10 +363,23 @@ bool Client::setRemotePair(int owner, std::string_view key, std::string_view val
 }
 
 bool Client::removePair(std::string_view key) {
-  if (!my_server_session_) return false;
+  if (!ready()) return false;
 
   const RemovePairRequest request{ownerId(), std::string(key)};
-  my_server_session_->send(wire::frameOf(wire::MessageType::RemovePair, request));
+  {
+    std::lock_guard lock(pair_space_.mutex);
+    const PairEntry* entry = pair_space_.find(request.owner, request.key);
+    // Removing a key that was never published succeeds and does nothing.
+    // Documented behaviour, not an oversight: see docs/user/api-reference.md.
+    if (entry == nullptr) {
+      SRNP_DEBUG("nothing to remove for [{}] {}", request.owner, request.key);
+      return true;
+    }
+    // Read the subscribers before the removal: that is what takes the list away.
+    const std::vector<int> subscribers = entry->subscribers;
+    pair_space_.removePair(request.owner, request.key);
+    if (!subscribers.empty()) fanOutRemoval(request, subscribers);
+  }
   return true;
 }
 
@@ -496,10 +456,7 @@ CallbackHandle Client::registerCallback(int owner, std::string_view key,
                                         Pair::CallbackFunction callback_fn) {
   std::lock_guard lock(pair_space_.mutex);
 
-  if (key == kWildcardKey) {
-    pair_space_.addCallbackToAll(std::move(callback_fn));
-    return kInvalidCallbackHandle;
-  }
+  if (key == kWildcardKey) return pair_space_.addCallbackToAll(std::move(callback_fn));
   return pair_space_.addCallback(owner, key, std::move(callback_fn));
 }
 

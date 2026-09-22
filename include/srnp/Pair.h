@@ -59,16 +59,6 @@ class Pair {
   Pair(int owner, std::string key, std::string value, Type type = Type::String)
       : pair_(std::move(key), std::move(value)), owner_(owner), pair_type_(type) {}
 
-  /**
-   * Owner ids subscribed to this pair. Every update is forwarded to each of them.
-   */
-  std::vector<int> subscribers_;
-
-  /**
-   * Callbacks to run locally when this pair changes, keyed by handle.
-   */
-  std::map<CallbackHandle, CallbackFunction> callbacks_;
-
   void setPair(std::string key, std::string value) {
     pair_.first = std::move(key);
     pair_.second = std::move(value);

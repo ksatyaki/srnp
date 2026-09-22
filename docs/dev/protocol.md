@@ -48,24 +48,17 @@ rather than being cast blindly into the enum type.
 | 0 | `Invalid` | — | never sent; rejected on receipt |
 | 1 | `Subscription` | `Subscription` | client → another component's server |
 | 2 | `Pair` | `Pair` | client → another component's server |
-| 3 | `PairNoCopy` | *empty* | our client → our own server |
-| 4 | `PairUpdate` | *empty*, or `Pair` | see below |
-| 5 | `PairUpdateOne` | *empty* | our server → our own client |
-| 6 | `IndicatePresence` | `IndicatePresence` | component's server → master |
-| 7 | `MasterMessage` | `MasterMessage` | master → server → our client |
-| 8 | `UpdateComponents` | `UpdateComponents` | master → server → our client |
-| 9 | `AttachClient` | *empty* | our client → our own server |
-| 10 | `RemovePair` | `RemovePairRequest` | client → the owning component's server |
-| 11 | `PairRemoved` | `RemovePairRequest` | owner's server → its client → subscriber's server |
+| 3 | `PairUpdate` | `Pair` | owner's client → subscriber's server |
+| 4 | `IndicatePresence` | `IndicatePresence` | component's server → master |
+| 5 | `MasterMessage` | `MasterMessage` | master → component's server |
+| 6 | `UpdateComponents` | `UpdateComponents` | master → component's server |
+| 7 | `RemovePair` | `RemovePairRequest` | client → the owning component's server |
+| 8 | `PairRemoved` | `RemovePairRequest` | owner's client → subscriber's server |
 
-`PairUpdate` is the one type whose payload depends on direction. From our server
-to our own client it is **empty**, and the pair itself is handed over in
-`PairQueue::updates` — see [Internals](internals.md#the-empty-pairupdate-frame).
-From our client onto another component's socket it carries a full `Pair`.
-
-`PairUpdateOne` only ever exists on the first of those hops. It means the same as
-`PairUpdate` but names one subscriber in the header instead of fanning out to all
-of them, and the client turns it into an ordinary `PairUpdate` on the wire.
+Every message on this list crosses a real network connection. Version 1 had
+three more — `PairNoCopy`, `PairUpdateOne` and `AttachClient` — which only ever
+travelled the loopback connection between a component's own client and server.
+That connection is gone, and so are they. See [Internals](internals.md).
 
 ## Payload layouts
 
@@ -150,9 +143,7 @@ sequenceDiagram
     S->>M: IndicatePresence {port, force_owner_id, owner_id}
     M-->>S: MasterMessage {owner, all_components}
     M->>O: UpdateComponents {Add, {owner, ip, port}}
-    Note over S: server keeps the MasterMessage
-    Note over S: our client connects and sends AttachClient
-    S-->>S: MasterMessage forwarded to our own client
+    Note over S: hands the MasterMessage to our client directly
 ```
 
 The master replies with everyone who registered *before* this component, not
@@ -185,19 +176,17 @@ back.
 sequenceDiagram
     participant U as User code
     participant C as Our client
-    participant S as Our server
     participant P as Subscriber's server
     U->>C: setPair(key, value)
-    C->>S: PairNoCopy (empty; the pair goes via PairQueue::outgoing)
-    Note over S: applies it, runs callbacks outside the lock
-    S->>C: PairUpdate (empty; the pair goes via PairQueue::updates)
+    Note over C: applies it and queues the frames under one lock
     C->>P: PairUpdate {Pair}
+    Note over C: callbacks posted to the callback strand
     Note over P: applies it, runs callbacks; does not forward it on
 ```
 
 A subscriber never forwards a pair it received — it is not the owner.
 
-`setRemotePair` skips the first two hops: the client sends `Pair {…}` straight to
+`setRemotePair` takes a different route: the client sends `Pair {…}` straight to
 the target component's server, which applies it, takes ownership, and fans it out
 to its own subscribers exactly as above.
 
@@ -211,15 +200,13 @@ sequenceDiagram
     participant P as Subscriber's server
     U->>C: removePair(key)
     C->>S: RemovePair {owner, key}
-    Note over S: reads the subscriber list, then deletes the pair
-    S->>C: PairRemoved {owner, key} — one per subscriber, named in the header
-    C->>P: PairRemoved {owner, key}
+    Note over C: reads the subscriber list, then deletes the pair
+    C->>P: PairRemoved {owner, key} — one per subscriber
     Note over P: deletes its copy
 ```
 
 The subscriber list has to be read before the deletion, because the deletion is
-what takes it away. One frame per subscriber, addressed the way `PairUpdateOne`
-is, means our client can relay each without needing the list itself.
+what takes it away.
 
 `removeRemotePair` sends the same `RemovePair` message to the owner's server
 instead of to our own, and the rest is identical.

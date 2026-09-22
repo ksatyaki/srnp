@@ -44,7 +44,6 @@ class KernelInstance {
  public:
   static std::shared_ptr<Server> server_instance_;
   static std::shared_ptr<Client> client_instance_;
-  static std::shared_ptr<PairQueue> pair_queue_;
   static std::shared_ptr<PairSpace> pair_space_;
   static std::shared_ptr<asio::io_context> io_context_;
 };

@@ -59,14 +59,11 @@ asio::awaitable<void> ServerSession::run() {
 
 void ServerSession::handle(const Frame& frame) {
   switch (frame.header.type) {
-    case wire::MessageType::PairNoCopy: handleLocalPair(); break;
     case wire::MessageType::Pair: handleIncomingPair(frame); break;
-    case wire::MessageType::PairUpdate:
-    case wire::MessageType::PairUpdateOne: handlePairUpdate(frame); break;
+    case wire::MessageType::PairUpdate: handlePairUpdate(frame); break;
     case wire::MessageType::Subscription: handleSubscription(frame); break;
     case wire::MessageType::RemovePair: handleRemovePair(frame); break;
     case wire::MessageType::PairRemoved: handlePairRemoved(frame); break;
-    case wire::MessageType::AttachClient: server_.attachClient(shared_from_this()); break;
     default:
       throw wire::DecodeError("a server cannot handle this message type");
   }
@@ -74,37 +71,32 @@ void ServerSession::handle(const Frame& frame) {
 
 Pair::ConstPtr ServerSession::applyAndNotify(const Pair& pair) {
   Pair::ConstPtr snapshot;
-  Pair::CallbackFunction universal;
+  std::vector<std::shared_ptr<const Pair::CallbackFunction>> callbacks;
+  std::vector<int> subscribers;
 
   {
     std::lock_guard lock(server_.pairSpace().mutex);
-    snapshot = std::make_shared<const Pair>(server_.pairSpace().addPair(pair));
-    universal = server_.pairSpace().u_callback_;
+    PairEntry& entry = server_.pairSpace().addPair(pair);
+    snapshot = std::make_shared<const Pair>(entry.pair);
+    subscribers = entry.subscribers;
+
+    callbacks = server_.pairSpace().universalCallbacks();
+    callbacks.reserve(callbacks.size() + entry.callbacks.size());
+    for (const auto& [handle, callback] : entry.callbacks) callbacks.push_back(callback);
   }
 
-  if (universal) universal(snapshot);
-  for (const auto& [handle, callback] : snapshot->callbacks_) callback(snapshot);
+  // Outside the lock, so a slow user callback cannot block the pair space.
+  for (const auto& callback : callbacks) (*callback)(snapshot);
 
+  if (!subscribers.empty()) server_.localClient().fanOutPair(*snapshot, subscribers);
   return snapshot;
-}
-
-void ServerSession::handleLocalPair() {
-  auto pair = server_.pairQueue().outgoing.pop();
-  if (!pair) {
-    SRNP_ERROR("got a local pair notification with nothing queued behind it");
-    return;
-  }
-
-  // A component only ever publishes under its own id.
-  pair->setOwner(server_.owner());
-  sendPairUpdate(*applyAndNotify(*pair));
 }
 
 void ServerSession::handleIncomingPair(const Frame& frame) {
   auto pair = decodePayload<Pair>(frame.bytes());
   // The sender addressed this to us, so we own it once it lands.
   pair.setOwner(server_.owner());
-  sendPairUpdate(*applyAndNotify(pair));
+  (void)applyAndNotify(pair);
 }
 
 void ServerSession::handlePairUpdate(const Frame& frame) {
@@ -143,14 +135,15 @@ void ServerSession::handleSubscription(const Frame& frame) {
     if (wildcard) {
       space.addSubscriptionToAll(message.subscriber);
       // Send everything we own so the new subscriber starts up to date.
-      for (const auto& [key, pair] : space.getAllPairs())
-        if (pair.getOwner() == server_.owner() && pair.getType() != Pair::Type::Invalid)
-          to_send.push_back(pair);
+      for (const auto& [key, entry] : space.getAllPairs())
+        if (entry.pair.getOwner() == server_.owner() &&
+            entry.pair.getType() != Pair::Type::Invalid)
+          to_send.push_back(entry.pair);
     } else {
       space.addSubscription(message.owner_id, message.key, message.subscriber);
-      if (const Pair* pair = space.find(message.owner_id, message.key);
-          pair != nullptr && pair->getType() != Pair::Type::Invalid) {
-        to_send.push_back(*pair);
+      if (const PairEntry* entry = space.find(message.owner_id, message.key);
+          entry != nullptr && entry->pair.getType() != Pair::Type::Invalid) {
+        to_send.push_back(entry->pair);
       }
     }
   }
@@ -170,27 +163,17 @@ void ServerSession::handleRemovePair(const Frame& frame) {
   std::vector<int> subscribers;
   {
     std::lock_guard lock(server_.pairSpace().mutex);
-    const Pair* pair = server_.pairSpace().find(message.owner, message.key);
-    if (pair == nullptr) {
+    const PairEntry* entry = server_.pairSpace().find(message.owner, message.key);
+    if (entry == nullptr) {
       SRNP_WARN("cannot remove [{}] {}: no such pair", message.owner, message.key);
       return;
     }
-    subscribers = pair->subscribers_;
+    subscribers = entry->subscribers;
     server_.pairSpace().removePair(message.owner, message.key);
   }
 
   if (subscribers.empty()) return;
-
-  auto client_session = server_.myClientSession();
-  if (!client_session) {
-    SRNP_WARN("cannot announce a removal: our client is not connected");
-    return;
-  }
-
-  // One frame per subscriber, addressed the way PairUpdateOne is, so our
-  // client knows where to send each without needing the list itself.
-  for (const int subscriber : subscribers)
-    client_session->send(wire::frameOf(wire::MessageType::PairRemoved, message, subscriber));
+  server_.localClient().fanOutRemoval(message, subscribers);
 }
 
 void ServerSession::handlePairRemoved(const Frame& frame) {
@@ -201,23 +184,8 @@ void ServerSession::handlePairRemoved(const Frame& frame) {
 }
 
 void ServerSession::sendPairUpdate(const Pair& pair, int subscriber) {
-  // Nobody is listening, so there is nothing to forward.
-  if (pair.subscribers_.empty()) return;
-
-  auto client_session = server_.myClientSession();
-  if (!client_session) {
-    SRNP_WARN("cannot forward a pair update: our client is not connected");
-    return;
-  }
-
-  const bool to_one = subscriber != kAnyOwner;
-  const auto type = to_one ? wire::MessageType::PairUpdateOne : wire::MessageType::PairUpdate;
-
-  // Hand the pair over the queue and announce it under the same lock, so
-  // the client pops exactly the pair this frame refers to.
-  auto guard = server_.pairQueue().updates.lock();
-  server_.pairQueue().updates.push(pair);
-  client_session->send(wire::frame(type, {}, to_one ? subscriber : kAnyOwner));
+  const int one[] = {subscriber};
+  server_.localClient().fanOutPair(pair, one);
 }
 
 /** MASTER LINK **/
@@ -259,7 +227,7 @@ MasterMessage MasterLink::registerWithMaster(unsigned short our_port, int desire
   return message;
 }
 
-asio::awaitable<void> MasterLink::run(ServerSessionPtr client_session) {
+asio::awaitable<void> MasterLink::run(LocalClient& local_client) {
   try {
     for (;;) {
       const auto frame = co_await channel_->read();
@@ -269,7 +237,7 @@ asio::awaitable<void> MasterLink::run(ServerSessionPtr client_session) {
       auto update = decodePayload<UpdateComponents>(frame.bytes());
       if (update.component.ip == "127.0.0.1") update.component.ip = master_ip_;
 
-      client_session->send(wire::frameOf(wire::MessageType::UpdateComponents, update));
+      local_client.onComponentUpdate(update);
     }
   } catch (const std::exception& e) {
     if (closing_.load(std::memory_order_relaxed))
@@ -287,20 +255,25 @@ void MasterLink::close() {
 /** SERVER **/
 
 Server::Server(asio::io_context& io, std::string master_ip, std::string master_port,
-               PairSpace& pair_space, PairQueue& pair_queue, int desired_owner_id)
+               PairSpace& pair_space, LocalClient& local_client, int desired_owner_id)
     : io_(io),
       acceptor_strand_(asio::make_strand(io)),
       acceptor_(io, tcp::endpoint(tcp::v4(), 0)),
       pair_space_(pair_space),
-      pair_queue_(pair_queue) {
+      local_client_(local_client) {
   port_ = acceptor_.local_endpoint().port();
 
   master_link_ = std::make_unique<MasterLink>(io_, std::move(master_ip), std::move(master_port));
-  welcome_ = master_link_->registerWithMaster(port_, desired_owner_id);
-  owner_id_.store(welcome_.owner, std::memory_order_relaxed);
-  SRNP_INFO("registered with the master as owner {}", welcome_.owner);
+  const MasterMessage welcome = master_link_->registerWithMaster(port_, desired_owner_id);
+  owner_id_.store(welcome.owner, std::memory_order_relaxed);
+  SRNP_INFO("registered with the master as owner {}", welcome.owner);
+
+  // Our client has no other way to learn its owner id or its peers. This
+  // used to travel over the loopback connection between the two halves.
+  local_client_.onWelcome(welcome);
 
   asio::co_spawn(acceptor_strand_, acceptLoop(), asio::detached);
+  asio::co_spawn(master_link_->strand(), master_link_->run(local_client_), asio::detached);
   startWorkers();
 }
 
@@ -324,28 +297,6 @@ asio::awaitable<void> Server::acceptLoop() {
     auto& strand = session->strand();
     asio::co_spawn(strand, session->run(), asio::detached);
   }
-}
-
-void Server::attachClient(ServerSessionPtr session) {
-  {
-    std::lock_guard lock(client_session_mutex_);
-    if (my_client_session_) {
-      SRNP_WARN("a second connection claimed to be our client; ignoring it");
-      return;
-    }
-    my_client_session_ = session;
-  }
-
-  // Our client has no other way to learn its owner id or its peers.
-  session->send(wire::frameOf(wire::MessageType::MasterMessage, welcome_));
-  // Only now start streaming later joins and leaves to it.
-  asio::co_spawn(master_link_->strand(), master_link_->run(std::move(session)),
-                 asio::detached);
-}
-
-ServerSessionPtr Server::myClientSession() const {
-  std::lock_guard lock(client_session_mutex_);
-  return my_client_session_;
 }
 
 void Server::printPairSpace() {

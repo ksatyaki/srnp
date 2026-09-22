@@ -79,9 +79,7 @@ Same rule as every other socket, same reason.
 | `ClientSession::channel_mutex_` | the channel pointer and the pending-frame deque | checking the channel and queueing, as one step |
 | `Client::state_mutex_` | the session map, the component map, the subscription map | map lookups only |
 | `Client::ready_mutex_` | pairs with `ready_changed_` for `waitUntilReady` | the condition-variable wait |
-| `Server::client_session_mutex_` | the pointer to our own client's session | a read or a write of that pointer |
 | `MasterHub::mutex_` | the master's session map | building a reply, or collecting send targets |
-| `PairHandoff::mutex_` | one pair queue | a push and the send that announces it |
 
 ### `PairSpace::mutex` is public on purpose
 

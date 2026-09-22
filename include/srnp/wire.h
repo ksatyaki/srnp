@@ -39,11 +39,17 @@ namespace srnp::wire {
  *
  *   u32 magic | u8 version | u8 type | u16 flags | u32 payload_length | u32 subscriber
  *
- * All integers are little-endian. 'subscriber' is only meaningful for
- * PairUpdateOne; the other message types leave it at -1.
+ * All integers are little-endian. 'subscriber' is unused as of version 2 and
+ * always -1: it addressed the loopback-only PairUpdateOne, which is gone. The
+ * field stays so the header keeps its size, and is reserved for the next
+ * message type that needs to name a component.
  */
 inline constexpr std::uint32_t kMagic = 0x504E5253;  // "SRNP"
-inline constexpr std::uint8_t kVersion = 1;
+// 2 dropped the three message types that only ever served the loopback
+// connection between a component's own client and server. A version 1 peer
+// and a version 2 peer cannot understand each other, and say so rather than
+// misparsing a frame.
+inline constexpr std::uint8_t kVersion = 2;
 inline constexpr std::size_t kHeaderSize = 16;
 
 /// Anything bigger than this is treated as a corrupt or hostile peer.
@@ -55,21 +61,14 @@ enum class MessageType : std::uint8_t {
   Subscription,
   /// A pair pushed to another component's server.
   Pair,
-  /// Apply the pair waiting in our local queue. Never leaves the process.
-  PairNoCopy,
-  /// Tell our client to forward a pair to everyone subscribed to it.
+  /// A pair we subscribed to, pushed at us by the component that owns it.
   PairUpdate,
-  /// Same, but to a single subscriber named in the header.
-  PairUpdateOne,
   /// A component telling the master it exists and where to reach it.
   IndicatePresence,
   /// The master's reply with our owner id and the components it knows.
   MasterMessage,
   /// The master telling us a component appeared or disappeared.
   UpdateComponents,
-  /// Sent by our own client so the server can tell it apart from the
-  /// clients of other components, which also connect to us.
-  AttachClient,
   /// Asks the owning component's server to delete one of its pairs.
   RemovePair,
   /// The owner telling a subscriber that a pair is gone.

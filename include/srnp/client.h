@@ -21,7 +21,7 @@
 #define SRNP_CLIENT_H_
 
 #include <srnp/Pair.h>
-#include <srnp/PairQueue.h>
+#include <srnp/local_client.h>
 #include <srnp/PairSpace.h>
 #include <srnp/msgs/CommMessages.h>
 #include <srnp/msgs/MasterMessages.h>
@@ -46,19 +46,24 @@ class Client;
 inline constexpr std::chrono::seconds kReconnectDelay{10};
 
 /**
- * One outbound connection. Either to our own server, which is the only one
- * we read from, or to another component's server, which we only write to.
+ * One outbound connection, to another component's server. Write-only: we
+ * push pairs and subscriptions and never read a reply. Our own server is in
+ * this process and is not reached through one of these.
  */
 class ClientSession : public std::enable_shared_from_this<ClientSession> {
  public:
   ClientSession(asio::io_context& io, std::string host, std::string port, Client& client,
-                bool is_our_own_server, int endpoint_owner_id);
+                int endpoint_owner_id);
 
-  /// Connects, and for our own server keeps reading until it goes away.
-  /// Connections to other components retry until they succeed or we close.
+  /// Connects, replays our subscriptions, then idles. Retries until it
+  /// succeeds or we close.
   asio::awaitable<void> run();
 
-  void send(std::vector<std::byte> frame);
+  /// `coalesce_key` marks a pair update droppable and names the key it
+  /// carries, so a backed-up queue can replace it rather than grow. Leave it
+  /// unset for anything that is not last-value-wins.
+  void send(std::vector<std::byte> frame,
+            std::optional<PairKey> coalesce_key = std::nullopt);
   void close();
 
   Strand& strand() { return strand_; }
@@ -66,15 +71,6 @@ class ClientSession : public std::enable_shared_from_this<ClientSession> {
 
  private:
   asio::awaitable<bool> connect();
-  asio::awaitable<void> readLoop();
-
-  void handleMasterMessage(const Frame& frame);
-  void handleUpdateComponents(const Frame& frame);
-  void handlePairUpdate(const Frame& frame);
-  void handlePairRemoved(const Frame& frame);
-
-  /// Pushes a pair to every component subscribed to it, or to just one.
-  void forwardPairUpdate(const Pair& pair, int only_subscriber);
 
   /// Replays our subscriptions to a component we just connected to.
   void sendSubscriptionsFor(int owner);
@@ -86,24 +82,26 @@ class ClientSession : public std::enable_shared_from_this<ClientSession> {
   std::string host_;
   std::string port_;
   Client& client_;
-  bool is_our_own_server_;
   int endpoint_owner_id_;
 
   std::mutex channel_mutex_;
   FrameChannelPtr channel_;
   /// Frames sent before the connection came up. Without this, anything
   /// published in the moment after learning about a component is lost.
-  std::deque<std::vector<std::byte>> pending_;
+  struct Pending {
+    std::vector<std::byte> bytes;
+    std::optional<PairKey> coalesce_key;
+  };
+  std::deque<Pending> pending_;
   std::atomic<bool> closing_{false};
 };
 
 using ClientSessionPtr = std::shared_ptr<ClientSession>;
 
-class Client {
+class Client : public LocalClient {
  public:
-  Client(asio::io_context& io, std::string our_server_ip, std::string our_server_port,
-         PairSpace& pair_space, PairQueue& pair_queue);
-  ~Client();
+  Client(asio::io_context& io, PairSpace& pair_space);
+  ~Client() override;
 
   Client(const Client&) = delete;
   Client& operator=(const Client&) = delete;
@@ -159,6 +157,13 @@ class Client {
 
   void close();
 
+  // LocalClient. Called by our server, from an io thread.
+  void fanOutPair(const Pair& pair, std::span<const int> subscribers) override;
+  void fanOutRemoval(const RemovePairRequest& request,
+                     std::span<const int> subscribers) override;
+  void onWelcome(const MasterMessage& welcome) override;
+  void onComponentUpdate(const UpdateComponents& update) override;
+
  private:
   friend class ClientSession;
 
@@ -169,12 +174,16 @@ class Client {
     std::string key;
   };
 
-  void onMasterMessage(int owner_id, const std::vector<ComponentInfo>& components);
   void addSession(const ComponentInfo& component);
   void removeSession(int owner);
 
   ClientSessionPtr sessionFor(int owner) const;
   std::vector<ClientSessionPtr> allSessions() const;
+
+  /// Runs the callbacks registered against a pair, on callback_strand_ so
+  /// two rapid publishes cannot deliver out of order across the io threads.
+  void notifyLocal(Pair::ConstPtr snapshot,
+                   std::vector<std::shared_ptr<const Pair::CallbackFunction>> callbacks);
 
   /// The subscriptions that apply to one component, wildcard ones included.
   std::vector<SubscriptionRecord> subscriptionsFor(int owner) const;
@@ -183,7 +192,11 @@ class Client {
 
   asio::io_context& io_;
   PairSpace& pair_space_;
-  PairQueue& pair_queue_;
+
+  /// Local callbacks run here, one at a time and in publish order. They used
+  /// to run on the single loopback session's strand, which gave the same
+  /// ordering by accident; this states it instead.
+  Strand callback_strand_;
 
   std::atomic<int> owner_id_{kAnyOwner};
   std::atomic<bool> ready_{false};
@@ -191,8 +204,6 @@ class Client {
   /// Only for waiters that want a timeout; ready() itself stays lock-free.
   std::mutex ready_mutex_;
   std::condition_variable ready_changed_;
-
-  ClientSessionPtr my_server_session_;
 
   mutable std::mutex state_mutex_;
   std::map<int, ClientSessionPtr> sessions_;

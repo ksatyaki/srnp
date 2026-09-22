@@ -35,7 +35,6 @@ constexpr std::chrono::seconds kReadyTimeout{10};
 
 std::shared_ptr<Server> KernelInstance::server_instance_;
 std::shared_ptr<Client> KernelInstance::client_instance_;
-std::shared_ptr<PairQueue> KernelInstance::pair_queue_;
 std::shared_ptr<PairSpace> KernelInstance::pair_space_;
 std::shared_ptr<asio::io_context> KernelInstance::io_context_;
 
@@ -46,23 +45,22 @@ void initialize(std::string_view master_ip, std::string_view master_port, int de
   if (ok()) throw InitError("this process already has a running SRNP node");
 
   KernelInstance::pair_space_ = std::make_shared<PairSpace>();
-  KernelInstance::pair_queue_ = std::make_shared<PairQueue>();
   KernelInstance::io_context_ = std::make_shared<asio::io_context>();
+
+  // The client comes first now: the server hands it the master's reply
+  // directly, where that used to arrive over a loopback connection.
+  KernelInstance::client_instance_ =
+      std::make_shared<Client>(*KernelInstance::io_context_, *KernelInstance::pair_space_);
 
   try {
     KernelInstance::server_instance_ = std::make_shared<Server>(
         *KernelInstance::io_context_, std::string(master_ip), std::string(master_port),
-        *KernelInstance::pair_space_, *KernelInstance::pair_queue_, desired_owner_id);
+        *KernelInstance::pair_space_, *KernelInstance::client_instance_, desired_owner_id);
   } catch (const std::exception& e) {
     shutdown();
     throw InitError(std::format("could not reach the master at {}:{} ({})", master_ip,
                                 master_port, e.what()));
   }
-
-  KernelInstance::client_instance_ = std::make_shared<Client>(
-      *KernelInstance::io_context_, "127.0.0.1",
-      std::to_string(KernelInstance::server_instance_->getPort()), *KernelInstance::pair_space_,
-      *KernelInstance::pair_queue_);
 
   if (!KernelInstance::client_instance_->waitUntilReady(kReadyTimeout)) {
     shutdown();
@@ -101,7 +99,6 @@ void shutdown() {
   KernelInstance::client_instance_.reset();
   KernelInstance::server_instance_.reset();
   KernelInstance::io_context_.reset();
-  KernelInstance::pair_queue_.reset();
   KernelInstance::pair_space_.reset();
 }
 
@@ -155,12 +152,11 @@ std::vector<Pair> snapshotPairs() {
 
   std::vector<Pair> pairs;
   std::lock_guard lock(KernelInstance::pair_space_->mutex);
-  for (const auto& [key, pair] : KernelInstance::pair_space_->getAllPairs()) {
+  for (const auto& [key, entry] : KernelInstance::pair_space_->getAllPairs()) {
     // Type::Invalid means a placeholder: subscribed or watched, but never
     // published, so there is no value to show.
-    if (pair.getType() == Pair::Type::Invalid) continue;
-    pairs.push_back(pair);
-    pairs.back().callbacks_.clear();
+    if (entry.pair.getType() == Pair::Type::Invalid) continue;
+    pairs.push_back(entry.pair);
   }
   return pairs;
 }

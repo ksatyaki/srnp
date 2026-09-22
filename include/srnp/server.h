@@ -21,7 +21,7 @@
 #define SRNP_SERVER_H_
 
 #include <srnp/Pair.h>
-#include <srnp/PairQueue.h>
+#include <srnp/local_client.h>
 #include <srnp/PairSpace.h>
 #include <srnp/msgs/CommMessages.h>
 #include <srnp/msgs/MasterMessages.h>
@@ -42,8 +42,9 @@ namespace srnp {
 class Server;
 
 /**
- * One connection into our server. Either our own client on the loopback,
- * or another component pushing pairs and subscriptions at us.
+ * One connection into our server: another component pushing pairs and
+ * subscriptions at us. Our own client is not one of these — it lives in
+ * this process and is reached through LocalClient.
  */
 class ServerSession : public std::enable_shared_from_this<ServerSession> {
  public:
@@ -55,8 +56,8 @@ class ServerSession : public std::enable_shared_from_this<ServerSession> {
 
   Strand& strand() { return channel_->strand(); }
 
-  /// Queues a pair update for our own client to fan out to subscribers.
-  /// A subscriber other than kAnyOwner sends it to that one component only.
+  /// Hands a pair update to our client to fan out. A subscriber other than
+  /// kAnyOwner sends it to that one component instead of the whole list.
   void sendPairUpdate(const Pair& pair, int subscriber = kAnyOwner);
 
   void send(std::vector<std::byte> frame) { channel_->send(std::move(frame)); }
@@ -64,7 +65,6 @@ class ServerSession : public std::enable_shared_from_this<ServerSession> {
 
  private:
   void handle(const Frame& frame);
-  void handleLocalPair();
   void handleIncomingPair(const Frame& frame);
   void handlePairUpdate(const Frame& frame);
   void handleSubscription(const Frame& frame);
@@ -94,7 +94,7 @@ class MasterLink {
   MasterMessage registerWithMaster(unsigned short our_port, int desired_owner_id);
 
   /// Streams component add/remove notices to our own client until the master drops.
-  asio::awaitable<void> run(ServerSessionPtr client_session);
+  asio::awaitable<void> run(LocalClient& local_client);
 
   void close();
 
@@ -109,7 +109,7 @@ class MasterLink {
 class Server {
  public:
   Server(asio::io_context& io, std::string master_ip, std::string master_port,
-         PairSpace& pair_space, PairQueue& pair_queue, int desired_owner_id = kAnyOwner);
+         PairSpace& pair_space, LocalClient& local_client, int desired_owner_id = kAnyOwner);
   ~Server();
 
   Server(const Server&) = delete;
@@ -118,15 +118,8 @@ class Server {
   unsigned short getPort() const { return port_; }
   int owner() const { return owner_id_.load(std::memory_order_relaxed); }
 
-  /// The session with our own client. Null until that client connects.
-  ServerSessionPtr myClientSession() const;
-
-  /// Called when a session identifies itself as our own client. Sends it
-  /// the master's reply and starts streaming component updates to it.
-  void attachClient(ServerSessionPtr session);
-
   PairSpace& pairSpace() { return pair_space_; }
-  PairQueue& pairQueue() { return pair_queue_; }
+  LocalClient& localClient() { return local_client_; }
 
   void printPairSpace();
 
@@ -146,15 +139,8 @@ class Server {
 
   std::atomic<int> owner_id_{kAnyOwner};
 
-  /// The master's reply, kept so it can be handed to our client as soon as
-  /// it connects. Our client learns its owner id from this.
-  MasterMessage welcome_;
-
   PairSpace& pair_space_;
-  PairQueue& pair_queue_;
-
-  mutable std::mutex client_session_mutex_;
-  ServerSessionPtr my_client_session_;
+  LocalClient& local_client_;
 
   std::unique_ptr<MasterLink> master_link_;
   std::vector<std::jthread> workers_;

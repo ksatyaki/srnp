@@ -62,10 +62,10 @@ class TestMaster {
 class TestNode {
  public:
   TestNode(const std::string& master_port, int desired_owner_id = srnp::kAnyOwner) {
-    server_ = std::make_unique<srnp::Server>(io_, "127.0.0.1", master_port, space_, queue_,
+    // The client first: the server hands it the master's reply directly.
+    client_ = std::make_unique<srnp::Client>(io_, space_);
+    server_ = std::make_unique<srnp::Server>(io_, "127.0.0.1", master_port, space_, *client_,
                                              desired_owner_id);
-    client_ = std::make_unique<srnp::Client>(io_, "127.0.0.1",
-                                             std::to_string(server_->getPort()), space_, queue_);
   }
 
   ~TestNode() {
@@ -85,7 +85,6 @@ class TestNode {
  private:
   boost::asio::io_context io_;
   srnp::PairSpace space_;
-  srnp::PairQueue queue_;
   std::unique_ptr<srnp::Server> server_;
   std::unique_ptr<srnp::Client> client_;
 };

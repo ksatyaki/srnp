@@ -45,48 +45,50 @@ else. The component it is about is skipped — it already knows.
 
 ## A component
 
-A component is one `Server` and one `Client` sharing a `PairSpace` and a
-`PairQueue`, all held by `KernelInstance` as process-wide singletons.
+A component is one `Server` and one `Client` sharing a `PairSpace`, both held by
+`KernelInstance` as process-wide singletons.
 
-**The server** owns the pair space. It accepts connections from other components'
-clients, and from our own. Everything that changes the pair space goes through a
+**The server** owns the pair space and accepts connections from other
+components' clients. Everything arriving from outside goes through a
 `ServerSession`.
 
 **The client** is the only thing that sends. It holds one `ClientSession` per
-component it knows about, plus one to our own server. The one to our own server
-is the only one it reads from.
+component it knows about, each write-only.
 
-That asymmetry is the core of the design: writes fan out from the client, reads
-land at the server, and the pair space has exactly one writer path.
+The two halves are in the same process and call each other directly. The server
+reaches the client through `LocalClient`, a four-method interface — fan a pair
+out, announce a removal, and the two master messages.
 
 ```mermaid
 graph LR
     subgraph "Component A"
         AK["setPair()"] --> AC[Client]
-        AC -->|"PairNoCopy"| AS["Server<br/>pair space"]
-        AS -->|"PairUpdate"| AC
+        AC --> AS["pair space"]
     end
     AC -->|"PairUpdate"| BS["Component B<br/>Server"]
 ```
 
-Publishing locally is a loop: the client hands the pair to its own server, the
-server applies it and asks the client to forward it, and the client sends it to
-every subscriber. The loop exists so the server is the only thing that ever
-writes to the pair space, no matter where a pair came from.
+A local publish applies the pair and queues it to each subscriber, in one
+critical section. It does not touch a socket until it leaves for another
+component. A pair arriving from outside lands at a `ServerSession`, which
+applies it and hands it to `LocalClient` to forward.
+
+Until version 0.3 the two halves were joined by a loopback TCP connection and a
+publish crossed it twice before reaching the wire. [Internals](internals.md)
+has what that cost and why it went.
 
 ## Startup
 
-1. `initialize` creates the pair space, the pair queue and the io context.
-2. `Server` binds port 0, connects to the master, and sends `IndicatePresence`.
+1. `initialize` creates the pair space and the io context.
+2. `Client` is constructed. It opens nothing yet: it has no owner id.
+3. `Server` binds port 0, connects to the master, and sends `IndicatePresence`.
    This part is synchronous: nothing else can happen before we have an owner id.
-3. The server starts its accept loop and four worker threads running the io
-   context.
-4. `Client` connects to our own server and sends `AttachClient`, which is how the
-   server tells our client apart from other components' clients.
-5. The server replies with the `MasterMessage` it kept from registration, and
-   starts streaming later joins and leaves to that session.
-6. The client learns its owner id from that message, opens a session to each
-   component in the list, and marks itself ready. `initialize` returns.
+4. The server hands the master's reply straight to the client through
+   `LocalClient::onWelcome`. The client learns its owner id, opens a session to
+   each component in the list, and marks itself ready.
+5. The server starts its accept loop, begins streaming later joins and leaves to
+   the client, and starts four worker threads running the io context.
+6. `initialize` returns.
 
 ## Shutdown
 

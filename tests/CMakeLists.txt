@@ -11,6 +11,7 @@ endif()
 
 add_executable(srnp_unit_tests
   test_pair_space.cpp
+  test_backpressure.cpp
   test_wire.cpp
   test_meta_parsing.cpp
   # No ImGui in gui/format, so these run whether or not the GUI is built.

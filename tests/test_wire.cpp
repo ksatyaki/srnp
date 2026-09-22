@@ -92,7 +92,7 @@ TEST(Wire, MasterMessageWithNoComponents) {
 
 TEST(Wire, HeaderRoundTrip) {
   wire::FrameHeader original;
-  original.type = wire::MessageType::PairUpdateOne;
+  original.type = wire::MessageType::PairUpdate;
   original.payload_length = 4242;
   original.subscriber = 99;
 

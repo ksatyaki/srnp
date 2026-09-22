@@ -1,49 +1,62 @@
 # Internals
 
-> Describes `include/srnp/PairQueue.h`, `include/srnp/session.h`,
+> Describes `include/srnp/local_client.h`, `include/srnp/session.h`,
 > `include/srnp/PairSpace.h`, `src/server.cpp`, `src/client.cpp`.
 
-## The empty `PairUpdate` frame
+## A publish never leaves the process twice
 
-This is the most surprising thing in the codebase, and it reads like a bug until
-you know what it is.
+A component is two halves: a `Server` that owns the pair space and accepts
+connections, and a `Client` that holds one outbound connection to every other
+component. They share one `PairSpace`, one `io_context` and one process.
 
-When our server has a pair to forward, it does this:
+They used to be joined by a loopback TCP connection. `setPair` put the pair on
+an in-memory queue and sent an **empty** frame to 127.0.0.1 so the server would
+wake up and pop it; the server then sent another empty frame back so the client
+would fan the pair out. A publish crossed the loopback twice before it reached
+the wire, and a round trip between two components cost six socket hops instead
+of two. It measured about an order of magnitude worse than a broker doing
+strictly more work — see `benchmarks/RESULTS.md`.
 
-```cpp
-auto guard = server_.pairQueue().updates.lock();
-server_.pairQueue().updates.push(pair);
-client_session->send(wire::frame(type, {}, to_one ? subscriber : kAnyOwner));
-```
-
-The frame has **no payload**. The pair itself goes into `PairQueue::updates`, an
-in-memory queue, and the client pops it when the frame arrives. The same trick
-runs the other way: `setPair` pushes to `PairQueue::outgoing` and sends an empty
-`PairNoCopy`.
-
-It is not a bug. Our client and our server are in the same process, connected by
-a loopback socket only because that gives the server one uniform way to be
-talked to. Serialising a pair, writing it through the kernel, and parsing it back
-out would be pure waste when a pointer move would do. So the socket carries the
-*notification* and the queue carries the *data*.
-
-The frame still has to exist: it is what wakes the reader and tells it which kind
-of handoff this is, and for `PairUpdateOne` its header names the one subscriber.
-
-### Why push and send are under one lock
+Now the halves call each other. `Server` holds a `LocalClient&`:
 
 ```cpp
-[[nodiscard]] std::unique_lock<std::mutex> lock() { return std::unique_lock(mutex_); }
+class LocalClient {
+  virtual void fanOutPair(const Pair& pair, std::span<const int> subscribers) = 0;
+  virtual void fanOutRemoval(const RemovePairRequest&, std::span<const int>) = 0;
+  virtual void onWelcome(const MasterMessage& welcome) = 0;
+  virtual void onComponentUpdate(const UpdateComponents& update) = 0;
+};
 ```
 
-`PairHandoff::lock()` hands the caller the mutex, and the caller holds it across
-both the push and the send. Without that, two threads could push in one order and
-send in the other, and each reader would pop a pair belonging to someone else's
-frame. Every pair after that would be wrong, silently.
+`Client` implements it. That interface is exactly what the loopback used to
+carry: pair updates, removals, and the two master messages. Keeping it an
+interface rather than a `Client*` is what lets the tests build a server without
+a client behind it.
 
-If a reader ever pops an empty queue, a frame arrived without its pair and
-something has broken that rule. That is why the handlers log an error rather than
-returning quietly.
+`PairQueue` and `PairHandoff` are gone with the socket, and so are the three
+message types that only ever travelled it: `PairNoCopy`, `PairUpdateOne` and
+`AttachClient`.
+
+### What holds the ordering together
+
+`setPair` applies the pair and queues the outgoing frames **under one lock**:
+
+```cpp
+std::lock_guard lock(pair_space_.mutex);
+const PairEntry& entry = pair_space_.addPair(incoming);
+if (!entry.subscribers.empty()) fanOutPair(entry.pair, entry.subscribers);
+```
+
+Split that and two threads publishing the same key can apply in one order and
+queue in the other, leaving the subscriber holding the older value. The loopback
+used to give this ordering for free, because every publish went through one
+socket; now the lock states it.
+
+Callbacks are the other half of that. They are **posted** to one strand rather
+than run inline, which keeps two things true: `setPair` never runs user code on
+its caller's thread, and callbacks arrive in publish order even though four io
+threads are available. Before, they happened to be ordered because they all ran
+on the single loopback session's strand.
 
 ## `FrameChannel`
 
@@ -58,6 +71,21 @@ already handled. A malformed header throws and the connection goes.
 running, spawns one on the strand. The drain writes one frame at a time with
 `async_write`, so two frames can never interleave on the wire and the buffer
 always outlives its write.
+
+The queue is bounded. A subscriber that stops reading would otherwise grow the
+publisher's memory without limit, so at `kMaxOutboxFrames` the channel starts
+making room, in this order:
+
+1. If the new frame is a pair update for a key **already waiting**, it replaces
+   that one in place. The subscriber never saw the older value and now never
+   will — which is what last-value-wins means.
+2. Otherwise the oldest frame that carries a key is dropped.
+3. If nothing in the queue carries a key, the connection is closed.
+
+Step three is the important one. The outbox holds subscriptions and removals
+alongside pair updates, and dropping one of those silently corrupts the peer's
+idea of the world. Only frames tagged with a `coalesce_key` are ever droppable,
+and only `fanOutPair` tags them.
 
 Each frame is built complete in one buffer and written in one call. Splitting the
 header and the payload across two writes is what invites a Nagle delay between
@@ -74,20 +102,16 @@ There are four, and they are easy to confuse.
 | `MasterHubSession` | the master | one component's messages | that component |
 | `MasterLink` | a component's server | the master's updates | the master |
 | `ServerSession` | a component's server | one inbound connection | that connection |
-| `ClientSession` | a component's client | our own server only | any one component |
+| `ClientSession` | a component's client | nothing | any one component |
 
-`ServerSession` is created per accepted connection. It cannot tell in advance
-whether the peer is our own client or another component's — both connect to the
-same acceptor — so our client identifies itself with `AttachClient`, and
-`Server::attachClient` remembers that one session. It is the only one the server
-can send to, because it is the only path back out to the network.
+`ServerSession` is created per accepted connection, one per other component
+talking to us. Every one of them is another component's client; our own client
+is in this process and does not connect to the acceptor at all.
 
-`ClientSession` has two modes, set by `is_our_own_server_`. The session to our
-own server connects, sends `AttachClient`, and reads forever. A session to
-another component connects, replays our subscriptions to it, and then only ever
-writes. Failure is treated differently too: not reaching another component is
-retried every 10 seconds, while not reaching our own server is fatal, since it is
-in this process.
+`ClientSession` is write-only. It connects, replays our subscriptions to that
+component, and then only ever writes — replies come back to our server on that
+component's own outbound connection, not down this one. Failing to reach a
+component is retried every 10 seconds.
 
 Frames sent before a connection comes up are held in `pending_` and flushed in
 order once it does, capped at 1024 frames. Without that, anything published in

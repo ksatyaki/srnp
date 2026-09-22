@@ -20,6 +20,7 @@
 #ifndef SRNP_SESSION_H_
 #define SRNP_SESSION_H_
 
+#include <srnp/Pair.h>
 #include <srnp/wire.h>
 
 #include <boost/asio/awaitable.hpp>
@@ -31,6 +32,9 @@
 #include <atomic>
 #include <cstddef>
 #include <deque>
+#include <list>
+#include <map>
+#include <optional>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -76,7 +80,16 @@ class FrameChannel : public std::enable_shared_from_this<FrameChannel> {
 
   /// Queues a frame. Returns once it is queued, not once it is written.
   /// Safe to call from any thread.
-  void send(std::vector<std::byte> frame);
+  ///
+  /// `coalesce_key` names the pair a frame carries an update for, and marks
+  /// the frame droppable. A subscriber that stops reading would otherwise
+  /// grow our memory without limit; once the queue is full, a new update for
+  /// a key already waiting replaces it in place. The subscriber then gets the
+  /// current value instead of a stale backlog. Leave it unset for anything
+  /// that is not last-value-wins — a subscription or a removal dropped in
+  /// silence corrupts the peer's state.
+  void send(std::vector<std::byte> frame,
+            std::optional<PairKey> coalesce_key = std::nullopt);
 
   /// Safe to call from any thread. The socket itself is closed on the
   /// strand, so it never races a read or write in progress.
@@ -84,14 +97,36 @@ class FrameChannel : public std::enable_shared_from_this<FrameChannel> {
 
   bool isClosed() const { return closed_.load(std::memory_order_acquire); }
 
+  /// How many frames are waiting to be written. Exists so the backpressure
+  /// test can watch the queue stay bounded; nothing else should need it.
+  std::size_t outboxSize() const;
+
+  /// The cap outboxSize() is held under.
+  static std::size_t maxOutboxFrames();
+
  private:
   asio::awaitable<void> drainOutbox();
 
   tcp::socket socket_;
   Strand strand_;
 
-  std::mutex outbox_mutex_;
-  std::deque<std::vector<std::byte>> outbox_;
+  struct Outbound {
+    std::vector<std::byte> bytes;
+    /// Set only on pair updates, which are the only droppable frames.
+    std::optional<PairKey> coalesce_key;
+  };
+
+  /// Called with outbox_mutex_ held. True if the frame found a home.
+  bool makeRoomLocked(const std::optional<PairKey>& coalesce_key,
+                      std::vector<std::byte>& frame);
+
+  mutable std::mutex outbox_mutex_;
+  /// A list, not a deque, so the index below keeps its iterators valid
+  /// across a push at the back and an erase in the middle.
+  std::list<Outbound> outbox_;
+  /// Where each coalescable key currently sits, so replacing one is a lookup
+  /// rather than a walk of the whole queue.
+  std::map<PairKey, std::list<Outbound>::iterator> coalescable_;
   bool writing_ = false;
   std::atomic<bool> closed_{false};
 };

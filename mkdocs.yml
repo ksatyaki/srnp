@@ -1,7 +1,7 @@
 site_name: srnp
 site_description: A blackboard middleware for components that share key/value pairs.
 # Replaced once the site is deployed. See the README.
-site_url: https://SRNP_DOCS_URL_PLACEHOLDER
+site_url: https://srnp.chitt.se
 repo_url: https://github.com/ksatyaki/srnp
 docs_dir: docs
 
