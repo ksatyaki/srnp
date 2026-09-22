@@ -1,195 +1,174 @@
 /*
- * srnp_kernel.c
- *
- *  Created on: Feb 15, 2015
- *      Author: ace
- */
+  srnp_kernel.cpp - The process-wide node.
+
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
 
 #include <srnp/srnp_kernel.h>
+#include <srnp/srnp_print.h>
 
-namespace srnp
-{
+#include <charconv>
+#include <cstdlib>
+#include <format>
+#include <string>
 
-bool KernelInstance::ok = false;
+namespace srnp {
+namespace {
 
-// Static variable declaration.
-boost::shared_ptr <Server> KernelInstance::server_instance_;
-boost::shared_ptr <Client> KernelInstance::client_instance_;
-boost::shared_ptr <PairQueue> KernelInstance::pair_queue_;
-boost::shared_ptr <boost::asio::io_service> KernelInstance::io_service_;
-boost::shared_ptr <PairSpace> KernelInstance::pair_space_;
+/// How long to wait for the master to hand us an owner id.
+constexpr std::chrono::seconds kReadyTimeout{10};
 
-bool ok()
-{
-	if(KernelInstance::ok) return true;
-	else return false;
-}
-	
-void initialize_py (const std::string& ip, const std::string& port)
-{
-	int argn = 1;
-	char* args[] = { "SRNPy" };
+}  // namespace
 
-	char *env[2];
-	env[0] = new char[ip.size() + 1];
-	env[1] = new char[port.size() + 1];
+std::shared_ptr<Server> KernelInstance::server_instance_;
+std::shared_ptr<Client> KernelInstance::client_instance_;
+std::shared_ptr<PairQueue> KernelInstance::pair_queue_;
+std::shared_ptr<PairSpace> KernelInstance::pair_space_;
+std::shared_ptr<asio::io_context> KernelInstance::io_context_;
 
-	strcpy(env[0], ip.c_str());
-	strcpy(env[1], port.c_str());
+bool ok() { return KernelInstance::client_instance_ != nullptr; }
 
-	initialize(argn, args, env);
+void initialize(std::string_view master_ip, std::string_view master_port, int desired_owner_id,
+                std::string_view node_name) {
+  if (ok()) throw InitError("this process already has a running SRNP node");
 
-	delete env[0];
-	delete env[1];
-}
+  KernelInstance::pair_space_ = std::make_shared<PairSpace>();
+  KernelInstance::pair_queue_ = std::make_shared<PairQueue>();
+  KernelInstance::io_context_ = std::make_shared<asio::io_context>();
 
-void initialize(int argn, char* args[], char* env[])
-{
-	srnp::srnp_print_setup("INFO");
-	
-	if( getenv("SRNP_MASTER_IP") == NULL || getenv("SRNP_MASTER_PORT") == NULL)
-	{
-		SRNP_PRINT_INFO << "Missing environment variables \'SRNP_MASTER_IP\' and/or \'SRNP_MASTER_PORT\'. Please check.";
-	    exit(0);
-	}
-	std::string srnp_master_ip = getenv("SRNP_MASTER_IP");
-	std::string srnp_master_port = getenv("SRNP_MASTER_PORT");
-	int desired_owner_id = -1;
+  try {
+    KernelInstance::server_instance_ = std::make_shared<Server>(
+        *KernelInstance::io_context_, std::string(master_ip), std::string(master_port),
+        *KernelInstance::pair_space_, *KernelInstance::pair_queue_, desired_owner_id);
+  } catch (const std::exception& e) {
+    shutdown();
+    throw InitError(std::format("could not reach the master at {}:{} ({})", master_ip,
+                                master_port, e.what()));
+  }
 
-	for(int i = 1; i < argn; i++)
-	{
-		if(strcmp(args[i], "--owner-id") == 0)
-		{
-			if(i+1 < argn)
-				desired_owner_id = atoi(args[i+1]);
-			else
-			{
-				SRNP_PRINT_ERROR << "You have used the \'owner-id\' option but didn't specify one. That's criminal!";
-				exit(0);
-				//shutdown();
-			}
-		}
+  KernelInstance::client_instance_ = std::make_shared<Client>(
+      *KernelInstance::io_context_, "127.0.0.1",
+      std::to_string(KernelInstance::server_instance_->getPort()), *KernelInstance::pair_space_,
+      *KernelInstance::pair_queue_);
 
-	}
+  if (!KernelInstance::client_instance_->waitUntilReady(kReadyTimeout)) {
+    shutdown();
+    throw InitError("the master never sent us an owner id");
+  }
 
-	KernelInstance::ok = true;
-	KernelInstance::pair_space_ = boost::shared_ptr <PairSpace> (new PairSpace);
-	KernelInstance::io_service_ = boost::shared_ptr <boost::asio::io_service> (new boost::asio::io_service);
-	KernelInstance::pair_queue_ = boost::shared_ptr <PairQueue> (new PairQueue);
-	KernelInstance::server_instance_ = boost::shared_ptr <Server>
-		(new Server(*KernelInstance::io_service_,
-					srnp_master_ip,
-					srnp_master_port,
-					*KernelInstance::pair_space_,
-					*KernelInstance::pair_queue_,
-					desired_owner_id));
-
-	boost::shared_array <char> buffer = boost::shared_array<char>(new char[10]);
-	sprintf(buffer.get(), "%d", KernelInstance::server_instance_->getPort());
-	
-	KernelInstance::client_instance_ = boost::shared_ptr <Client> (new Client(*KernelInstance::io_service_,
-																			  "127.0.0.1",
-																			  std::string(buffer.get()),
-																			  *KernelInstance::pair_space_,
-																			  *KernelInstance::pair_queue_));
-
-	while(!KernelInstance::client_instance_->ready()) {
-		usleep(100);
-	}
-
-	printf("\n*****************\nSRNP NODE STARTED\nName: %s\nOwner ID: %d\n*****************\n", args[0], getOwnerID());
-
+  SRNP_INFO("node \"{}\" started with owner id {}", node_name, getOwnerID());
 }
 
-void shutdown()
-{
-	SRNP_PRINT_INFO << "SRNP SHUTTING DOWN!";
+void initialize(int argc, char* argv[]) {
+  const char* master_ip = std::getenv("SRNP_MASTER_IP");
+  const char* master_port = std::getenv("SRNP_MASTER_PORT");
+  if (master_ip == nullptr || master_port == nullptr)
+    throw InitError("set SRNP_MASTER_IP and SRNP_MASTER_PORT before starting a node");
 
-	KernelInstance::io_service_->stop();
-	
-	KernelInstance::client_instance_.reset();
-	KernelInstance::server_instance_.reset();
-	KernelInstance::pair_queue_.reset();
-	KernelInstance::io_service_.reset();
-	KernelInstance::pair_space_.reset();
-	//SRNP_PRINT_INFO << "Everthing is over!";
-	exit(0);
+  int desired_owner_id = kAnyOwner;
+  for (int i = 1; i < argc; ++i) {
+    if (std::string_view(argv[i]) != "--owner-id") continue;
+    if (i + 1 >= argc) throw InitError("--owner-id needs a number after it");
+
+    const std::string_view value(argv[i + 1]);
+    if (std::from_chars(value.data(), value.data() + value.size(), desired_owner_id).ec !=
+        std::errc{})
+      throw InitError(std::format("--owner-id got \"{}\", which is not a number", value));
+  }
+
+  initialize(master_ip, master_port, desired_owner_id, argc > 0 ? argv[0] : "srnp");
 }
 
-bool setPair(const std::string& key, const std::string& value, const Pair::PairType& type)
-{
-	return KernelInstance::client_instance_->setPair(key, value, type);
+void shutdown() {
+  if (KernelInstance::client_instance_) KernelInstance::client_instance_->close();
+  if (KernelInstance::server_instance_) KernelInstance::server_instance_->stop();
+
+  // The server joins its worker threads in stop(), so nothing is still
+  // touching these by the time they go.
+  KernelInstance::client_instance_.reset();
+  KernelInstance::server_instance_.reset();
+  KernelInstance::io_context_.reset();
+  KernelInstance::pair_queue_.reset();
+  KernelInstance::pair_space_.reset();
 }
 
-Pair::ConstPtr getPairIndirectly(const int& metaowner, const std::string& metakey) {
-	return KernelInstance::client_instance_->getPairIndirectly(metaowner, metakey);
+namespace {
+
+/// Every call below needs a live node; this keeps the check in one place.
+Client& client() {
+  if (!KernelInstance::client_instance_)
+    throw InitError("no SRNP node is running. Call initialize() first");
+  return *KernelInstance::client_instance_;
 }
 
-	bool setPairIndirectly(const int& metaowner, const std::string& metakey, const std::string& value) {
-		return KernelInstance::client_instance_->setPairIndirectly(metaowner, metakey, value);
+}  // namespace
+
+bool setPair(std::string_view key, std::string_view value, Pair::Type type) {
+  return client().setPair(key, value, type);
 }
 
-
-bool setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type) {
-	return KernelInstance::client_instance_->setRemotePair(owner, key, value, type);
+bool setRemotePair(int owner, std::string_view key, std::string_view value, Pair::Type type) {
+  return client().setRemotePair(owner, key, value, type);
 }
 
-bool setMetaPair (const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {
-	return KernelInstance::client_instance_->setMetaPair(meta_owner, meta_key, owner, key);
+bool setPairIndirectly(int metaowner, std::string_view metakey, std::string_view value) {
+  return client().setPairIndirectly(metaowner, metakey, value);
 }
 
-bool initMetaPair (const int& meta_owner, const std::string& meta_key) {
-	return KernelInstance::client_instance_->initMetaPair(meta_owner, meta_key);	
+bool setMetaPair(int meta_owner, std::string_view meta_key, int owner, std::string_view key) {
+  return client().setMetaPair(meta_owner, meta_key, owner, key);
 }
 
-Pair::ConstPtr getPair(const int& owner, const std::string& key) {
-	return KernelInstance::client_instance_->getPair(owner, key);
-}
-	
-void printPairSpace()
-{
-	KernelInstance::server_instance_->printPairSpace();
+bool initMetaPair(int meta_owner, std::string_view meta_key) {
+  return client().initMetaPair(meta_owner, meta_key);
 }
 
-CallbackHandle registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn)
-{
-	return KernelInstance::client_instance_->registerCallback(owner, key, callback_fn);
+std::optional<Pair> getPair(int owner, std::string_view key) {
+  return client().getPair(owner, key);
 }
 
-void cancelCallback(const CallbackHandle& cbid)
-{
-	KernelInstance::client_instance_->cancelCallback(cbid);
+std::optional<Pair> getPairIndirectly(int metaowner, std::string_view metakey) {
+  return client().getPairIndirectly(metaowner, metakey);
 }
 
-SubscriptionHandle registerSubscription(const std::string& key)
-{
-	return KernelInstance::client_instance_->registerSubscription(key);
-}
-	
-SubscriptionHandle registerSubscription(const int& owner, const std::string& key)
-{
-	return KernelInstance::client_instance_->registerSubscription(owner, key);
+void printPairSpace() { KernelInstance::server_instance_->printPairSpace(); }
+
+CallbackHandle registerCallback(int owner, std::string_view key,
+                                Pair::CallbackFunction callback_fn) {
+  return client().registerCallback(owner, key, std::move(callback_fn));
 }
 
-void cancelSubscription(const std::string& key)
-{
-	KernelInstance::client_instance_->cancelSubscription(key);
+void cancelCallback(CallbackHandle handle) { client().cancelCallback(handle); }
+
+SubscriptionHandle registerSubscription(int owner, std::string_view key) {
+  return client().registerSubscription(owner, key);
 }
 
-void cancelSubscription(const SubscriptionHandle& handle) {
-	KernelInstance::client_instance_->cancelSubscription(handle);
+SubscriptionHandle registerSubscription(std::string_view key) {
+  return client().registerSubscription(key);
 }
 
-void cancelSubscription(const int& owner, const std::string& key)
-{
-	KernelInstance::client_instance_->cancelSubscription(owner, key);
+void cancelSubscription(SubscriptionHandle handle) { client().cancelSubscription(handle); }
+
+void cancelSubscription(int owner, std::string_view key) {
+  client().cancelSubscription(owner, key);
 }
 
-int getOwnerID ()
-{
-	return KernelInstance::server_instance_->owner();
-}
+void cancelSubscription(std::string_view key) { client().cancelSubscription(key); }
 
-}
+int getOwnerID() { return client().ownerId(); }
 
-
+}  // namespace srnp

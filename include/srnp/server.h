@@ -1,7 +1,6 @@
 /*
-  server.h - Server sits behind the client and takes care of async-
-  things.
-  
+  server.h - Server sits behind the client and owns the pair space.
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -21,184 +20,145 @@
 #ifndef SRNP_SERVER_H_
 #define SRNP_SERVER_H_
 
-#include <srnp/srnp_print.h>
-
-#include <boost/asio.hpp>
-#include <boost/bind.hpp>
-#include <boost/thread/thread.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-
-#include <string>
-#include <vector>
-#include <queue>
-
+#include <srnp/Pair.h>
+#include <srnp/PairQueue.h>
+#include <srnp/PairSpace.h>
 #include <srnp/msgs/CommMessages.h>
 #include <srnp/msgs/MasterMessages.h>
-#include <srnp/msgs/MessageHeader.h>
-#include <srnp/Pair.h>
-#include <srnp/PairSpace.h>
-#include <srnp/PairQueue.h>
+#include <srnp/session.h>
 
-using boost::asio::ip::tcp;
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
 
-namespace srnp
-{
+#include <atomic>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace srnp {
 
 class Server;
-class ServerSession;
 
-class MasterLink
-{
-	/**
-	 *  Save a copy of the initial master message.
-	 */
-	MasterMessage mm_;
+/**
+ * One connection into our server. Either our own client on the loopback,
+ * or another component pushing pairs and subscriptions at us.
+ */
+class ServerSession : public std::enable_shared_from_this<ServerSession> {
+ public:
+  ServerSession(tcp::socket socket, Strand strand, Server& server);
 
-	boost::array <char, sizeof(uint64_t)> in_size_;
+  /// Reads frames until the peer goes away. Owns itself for the duration.
+  /// Must be spawned on strand(), which is what serialises socket access.
+  asio::awaitable<void> run();
 
-	std::string master_ip_;
+  Strand& strand() { return channel_->strand(); }
 
-	std::string master_port_;
+  /// Queues a pair update for our own client to fan out to subscribers.
+  /// A subscriber other than kAnyOwner sends it to that one component only.
+  void sendPairUpdate(const Pair& pair, int subscriber = kAnyOwner);
 
-	std::vector <char> in_data_;
+  void send(std::vector<std::byte> frame) { channel_->send(std::move(frame)); }
+  void close() { channel_->close(); }
 
-	tcp::socket socket_;
+ private:
+  void handle(const Frame& frame);
+  void handleLocalPair();
+  void handleIncomingPair(const Frame& frame);
+  void handlePairUpdate(const Frame& frame);
+  void handleSubscription(const Frame& frame);
 
-	boost::shared_ptr <ServerSession>& my_client_session_;
+  /// Applies the pair, then runs the callbacks outside the lock so a slow
+  /// user callback can't block the rest of the pair space.
+  Pair::ConstPtr applyAndNotify(const Pair& pair);
 
-	tcp::resolver resolver_;
-
-	void handleUpdateComponentsMsg(const boost::system::error_code& e);
-
-	void indicatePresence(Server* server, int DesiredOwnerId);
-
-public:
-	void sendMMToOurClientAndWaitForUCMsg();
-
-	MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server, int desired_owner_id);
+  FrameChannelPtr channel_;
+  Server& server_;
 };
 
-class ServerSession
-{
-	Server* server_;
-	
-	boost::mutex socket_write_mutex;
+using ServerSessionPtr = std::shared_ptr<ServerSession>;
 
-	int& owner_;
+/**
+ * Keeps us registered with the master and tells us about other components.
+ */
+class MasterLink {
+ public:
+  MasterLink(asio::io_context& io, std::string master_ip, std::string master_port);
 
-	PairSpace& pair_space_;
+  Strand& strand() { return channel_->strand(); }
 
-	PairQueue& pair_queue_;
+  /// Connects, registers, and blocks until the master replies with our id.
+  MasterMessage registerWithMaster(unsigned short our_port, int desired_owner_id);
 
-	tcp::socket socket_;
+  /// Streams component add/remove notices to our own client until the master drops.
+  asio::awaitable<void> run(ServerSessionPtr client_session);
 
-	std::string out_msg_;
+  void close();
 
-	std::string out_size_;
-
-	std::string out_header_;
-
-	boost::array <char, sizeof(uint64_t)> in_header_size_buffer_;
-
-	std::vector <char> in_header_buffer_;
-
-	std::vector <char> in_data_buffer_;
-
-	void handleReadHeaderSize(const boost::system::error_code& e);
-
-	void handleReadHeader(const boost::system::error_code& e);
-
-	void handleReadPairUpdate(const boost::system::error_code& e);
-
-	void handleReadSubscription(const boost::system::error_code& e);
-
-	void handleReadPair(const boost::system::error_code& e);
-
-	void handleWrite(const boost::system::error_code& e);
-
-	void sendPairUpdateToClient(const Pair& to_up, int sub_only_one = -1);
-
-	bool sendDataToClient(const std::string& out_header_size, const std::string& out_header, const std::string& out_data);
-
-
-public:
-
-	static int session_counter;
-
-	ServerSession (boost::asio::io_service& service, PairSpace& pair_space, PairQueue& pair_queue, int& owner, Server* server);
-
-	~ServerSession ();
-
-	boost::system::error_code sendMasterMsgToOurClient(MasterMessage msg);
-
-	boost::system::error_code sendUpdateComponentsMsgToOurClient(UpdateComponents msg);
-
-	inline tcp::socket& socket() { return socket_; }
-
-	inline void startReading()
-	{
-		boost::asio::async_read(socket_, boost::asio::buffer(in_header_size_buffer_), boost::bind(&ServerSession::handleReadHeaderSize, this, boost::asio::placeholders::error) );
-	};
-
+ private:
+  std::string master_ip_;
+  std::string master_port_;
+  FrameChannelPtr channel_;
+  /// Tells a shutdown apart from the master actually going away.
+  std::atomic<bool> closing_{false};
 };
 
-class Server
-{
-protected:
+class Server {
+ public:
+  Server(asio::io_context& io, std::string master_ip, std::string master_port,
+         PairSpace& pair_space, PairQueue& pair_queue, int desired_owner_id = kAnyOwner);
+  ~Server();
 
-	std::string master_ip_, master_port_;
+  Server(const Server&) = delete;
+  Server& operator=(const Server&) = delete;
 
-	int owner_id_;
+  unsigned short getPort() const { return port_; }
+  int owner() const { return owner_id_.load(std::memory_order_relaxed); }
 
-	boost::shared_ptr <MasterLink> my_master_link_;
+  /// The session with our own client. Null until that client connects.
+  ServerSessionPtr myClientSession() const;
 
-	unsigned short port_;
+  /// Called when a session identifies itself as our own client. Sends it
+  /// the master's reply and starts streaming component updates to it.
+  void attachClient(ServerSessionPtr session);
 
-	boost::asio::io_service& io_service_;
+  PairSpace& pairSpace() { return pair_space_; }
+  PairQueue& pairQueue() { return pair_queue_; }
 
-	boost::asio::deadline_timer heartbeat_timer_;
+  void printPairSpace();
 
-	boost::asio::io_service::strand strand_;
+  /// Stops the io_context and joins the worker threads. Safe to call twice.
+  void stop();
 
-	tcp::acceptor acceptor_;
+ private:
+  asio::awaitable<void> acceptLoop();
+  void startWorkers();
 
-	boost::thread spin_thread_[4];
+  asio::io_context& io_;
+  /// The acceptor is a socket too: closing it from another thread would
+  /// race the accept in flight, so it lives on this strand.
+  Strand acceptor_strand_;
+  tcp::acceptor acceptor_;
+  unsigned short port_ = 0;
 
-	boost::shared_ptr<ServerSession> my_client_session_;
+  std::atomic<int> owner_id_{kAnyOwner};
 
-	void handleAcceptedMyClientConnection(boost::shared_ptr<ServerSession>& client_session, int desired_owner_id, const boost::system::error_code& e);
+  /// The master's reply, kept so it can be handed to our client as soon as
+  /// it connects. Our client learns its owner id from this.
+  MasterMessage welcome_;
 
-	void handleAcceptedConnection(ServerSession* new_session, const boost::system::error_code& e);
+  PairSpace& pair_space_;
+  PairQueue& pair_queue_;
 
-	void onHeartbeat();
+  mutable std::mutex client_session_mutex_;
+  ServerSessionPtr my_client_session_;
 
-	boost::posix_time::time_duration elapsed_time_;
-
-	PairQueue& pair_queue_;
-
-	PairSpace& pair_space_;
-
-public:
-
-	inline unsigned short getPort() { return port_; };
-
-	inline int& owner() { return owner_id_; }
-
-	inline ServerSession* my_client_session() { return my_client_session_.get(); };
-
-	inline void printPairSpace() { pair_space_.printPairSpace(); }
-
-	Server(boost::asio::io_service& service, std::string master_ip, std::string master_port, PairSpace& pair_space, PairQueue& pair_queue, int desired_owner_id = -1);
-
-	void startSpinThreads();
-
-	void waitForEver();
-
-	virtual ~Server();
+  std::unique_ptr<MasterLink> master_link_;
+  std::vector<std::jthread> workers_;
+  std::atomic<bool> stopped_{false};
 };
 
-} /* namespace srnp */
+}  // namespace srnp
 
 #endif /* SRNP_SERVER_H_ */

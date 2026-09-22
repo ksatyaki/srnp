@@ -1,6 +1,6 @@
 /*
   master_hub.cpp
-  
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -16,240 +16,156 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
-#include "srnp/master_hub.h"
+#include <srnp/master_hub.h>
+#include <srnp/msgs/codec.h>
+#include <srnp/srnp_print.h>
 
-namespace srnp
-{
+#include <boost/asio/as_tuple.hpp>
+#include <boost/asio/strand.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/signal_set.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
-int MasterHub::buss = 0;
-boost::random::mt19937 MasterHub::gen;
+#include <charconv>
+#include <cstdlib>
+#include <string>
+#include <utility>
 
-MasterHubSession::MasterHubSession (boost::asio::io_service& service) :
-		socket_ (service)
-{
+namespace srnp {
 
+/** MASTER HUB SESSION **/
+
+MasterHubSession::MasterHubSession(tcp::socket socket, Strand strand, MasterHub& master)
+    : channel_(std::make_shared<FrameChannel>(std::move(socket), std::move(strand))),
+      master_(master) {}
+
+std::string MasterHubSession::address() const {
+  boost::system::error_code error;
+  const auto endpoint = channel_->socket().remote_endpoint(error);
+  return error ? std::string() : endpoint.address().to_string();
 }
 
-MasterHubSession::~MasterHubSession ()
-{
+asio::awaitable<void> MasterHubSession::run() {
+  auto self = shared_from_this();
 
+  try {
+    // The handshake is just the first frame of the normal read loop, so a
+    // slow component can no longer stall the accept path.
+    const auto hello = co_await channel_->read();
+    if (hello.header.type != wire::MessageType::IndicatePresence)
+      throw wire::DecodeError("a component must introduce itself first");
+
+    const auto presence = decodePayload<IndicatePresence>(hello.bytes());
+    port_ = presence.port;
+
+    const auto welcome = master_.registerComponent(self, presence);
+    owner_ = welcome.owner;
+
+    send(wire::frameOf(wire::MessageType::MasterMessage, welcome));
+    SRNP_INFO("component on port {} registered as owner {}", port_, owner_);
+
+    UpdateComponents added;
+    added.operation = UpdateComponents::Operation::Add;
+    added.component = ComponentInfo{owner_, address(), port_};
+    master_.sendToAll(added);
+
+    // Nothing else is expected. The next read finishes when they disconnect.
+    co_await channel_->read();
+    throw wire::DecodeError("a component sent us an unexpected message");
+  } catch (const std::exception& e) {
+    SRNP_DEBUG("component {} is done: {}", owner_, e.what());
+  }
+
+  if (owner_ != kAnyOwner) {
+    master_.removeComponent(owner_);
+
+    UpdateComponents removed;
+    removed.operation = UpdateComponents::Operation::Remove;
+    removed.component.owner = owner_;
+    master_.sendToAll(removed);
+
+    SRNP_INFO("component {} disconnected", owner_);
+  }
+  channel_->close();
 }
 
-void MasterHubSession::handleRead(MasterHub* master, const boost::system::error_code& e)
-{
-	if(!e)
-	{
-		SRNP_PRINT_WARNING << "God! We received garbage data. Something is fishy...";
-		boost::asio::async_read(this->socket_, boost::asio::buffer(this->in_buffer_), master->strand().wrap(boost::bind(&MasterHubSession::handleRead, this, master, boost::asio::placeholders::error)));
-	}
-	else
-	{
-		master->sessions_map().erase(owner_);
+/** MASTER HUB **/
 
-		// Create a component info message and send to all with a delete message.
-		UpdateComponents update_msg;
-		//update_msg.component.ip = socket_.remote_endpoint().address().to_string();
-		update_msg.component.owner = owner_;
-		//update_msg.component.port = socket_.remote_endpoint().port();
-		update_msg.operation = UpdateComponents::REMOVE;
-
-		master->sendUpdateComponentsMessageToAll(update_msg);
-
-		SRNP_PRINT_INFO << "Component disconnected. IP: "<<update_msg.component.ip<<", OWNER: "<<update_msg.component.owner;
-		delete this;
-	}
-
+MasterHub::MasterHub(asio::io_context& io, unsigned short port)
+    : io_(io), acceptor_(io, tcp::endpoint(tcp::v4(), port)) {
+  port_ = acceptor_.local_endpoint().port();
+  asio::co_spawn(io_, acceptLoop(), asio::detached);
+  SRNP_INFO("master listening on port {}", port_);
 }
 
-MasterHub::MasterHub(boost::asio::io_service& service, unsigned short port) :
-		io_service_ (service),
-		acceptor_ (service, tcp::endpoint(tcp::v4(), port)),
-		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
-		strand_ (service)
-{
-	MasterHubSession* new_session = new MasterHubSession(io_service_);
-	acceptor_.async_accept (new_session->socket(), strand_.wrap(boost::bind(&MasterHub::handleAcceptedConnection, this, new_session, boost::asio::placeholders::error)));
-	// Register a callback for the timer. Called ever second.
-	heartbeat_timer_.async_wait (boost::bind(&MasterHub::onHeartbeat, this));
-	SRNP_PRINT_INFO << "Master started";
-	startSpinThreads();
+asio::awaitable<void> MasterHub::acceptLoop() {
+  for (;;) {
+    auto [error, socket] =
+        co_await acceptor_.async_accept(asio::as_tuple(asio::use_awaitable));
+    if (error) {
+      SRNP_INFO("master stopped accepting connections: {}", error.message());
+      co_return;
+    }
+    auto session =
+        std::make_shared<MasterHubSession>(std::move(socket), asio::make_strand(io_), *this);
+    auto& strand = session->strand();
+    asio::co_spawn(strand, session->run(), asio::detached);
+  }
 }
 
-int MasterHub::makeNewOwnerId(std::string port_str)
-{
-	int port_no = std::atoi(port_str.c_str());
-	gen.seed(port_no);
-	//gen.seed(boost::posix_time::second_clock::local_time().time_of_day().seconds());
-	boost::random::uniform_int_distribution<> dist(1000, 10000);
-		return dist(gen);
+int MasterHub::makeOwnerId(const std::string& port) {
+  int port_number = 0;
+  std::from_chars(port.data(), port.data() + port.size(), port_number);
+
+  // Seeding from the port keeps ids stable for a component that restarts on
+  // the same port, which makes logs easier to follow.
+  generator_.seed(static_cast<std::mt19937::result_type>(port_number));
+  std::uniform_int_distribution<int> distribution(1000, 10000);
+
+  int candidate = distribution(generator_);
+  while (sessions_.contains(candidate)) ++candidate;
+  return candidate;
 }
 
-void MasterHub::onHeartbeat()
-{
-	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
-	heartbeat_timer_.async_wait (boost::bind(&MasterHub::onHeartbeat, this));
-	SRNP_PRINT_TRACE << "*********************************************************";
-	SRNP_PRINT_TRACE << "Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
-	SRNP_PRINT_TRACE << "*********************************************************";
+MasterMessage MasterHub::registerComponent(const MasterHubSessionPtr& session,
+                                           const IndicatePresence& presence) {
+  std::lock_guard lock(mutex_);
+
+  MasterMessage welcome;
+  if (presence.force_owner_id && !sessions_.contains(presence.owner_id)) {
+    welcome.owner = presence.owner_id;
+  } else {
+    if (presence.force_owner_id)
+      SRNP_WARN("owner {} is taken, assigning a different one", presence.owner_id);
+    welcome.owner = makeOwnerId(presence.port);
+  }
+
+  // Everyone who registered before this component, so it can reach them.
+  for (const auto& [owner, other] : sessions_)
+    welcome.all_components.push_back(ComponentInfo{owner, other->address(), other->port()});
+
+  sessions_.emplace(welcome.owner, session);
+  return welcome;
 }
 
-void MasterHub::startSpinThreads()
-{
-	for(int i = 0; i < 2; i++)
-		spin_thread_[i] = boost::thread (boost::bind(&boost::asio::io_service::run, &io_service_));
-	SRNP_PRINT_INFO << "Two separate listening threads have started.";
+void MasterHub::removeComponent(int owner) {
+  std::lock_guard lock(mutex_);
+  sessions_.erase(owner);
 }
 
-void MasterHub::handleAcceptedConnection (MasterHubSession* new_session, const boost::system::error_code& e)
-{
-	if(!e)
-	{
+void MasterHub::sendToAll(const UpdateComponents& update) {
+  const auto frame = wire::frameOf(wire::MessageType::UpdateComponents, update);
 
-		boost::system::error_code errore;
-		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_size()), errore);
+  std::vector<MasterHubSessionPtr> targets;
+  {
+    std::lock_guard lock(mutex_);
+    for (const auto& [owner, session] : sessions_)
+      // The component this update is about already knows.
+      if (owner != update.component.owner) targets.push_back(session);
+  }
 
-		uint64_t size_of_port;
-		std::istringstream port_size_stream(std::string(new_session->in_size().elems, new_session->in_size().size()));
-		port_size_stream >> std::hex >> size_of_port;
-
-		new_session->in_data().resize(size_of_port);
-		boost::asio::read (new_session->socket(), boost::asio::buffer (new_session->in_data()), errore);
-
-		std::istringstream indicate_msg_stream (std::string(new_session->in_data().data(), new_session->in_data().size()));
-		boost::archive::text_iarchive indicate_msg_archive (indicate_msg_stream);
-
-		IndicatePresence indicatePresence;
-		indicate_msg_archive >> indicatePresence;
-
-		SRNP_PRINT_DEBUG << "PORT RECEIVED: " << indicatePresence.port;
-		// Get the port first.
-
-		// Send this guy his owner_id. And all components we have.
-		MasterMessage msg;
-		if(indicatePresence.force_owner_id)
-		{
-			SRNP_PRINT_WARNING << "You have asked for a specific Owner. Risky choice my friend...";
-			msg.owner = indicatePresence.owner_id;
-		}
-		else
-			msg.owner = makeNewOwnerId(indicatePresence.port);
-
-		new_session->setOwner (msg.owner);
-
-		// Collect component info to send to this new guy.
-		for(std::map <int, MasterHubSession*>::iterator iter = sessions_map_.begin(); iter != sessions_map_.end(); iter++)
-		{
-			ComponentInfo info;
-			info.ip = (iter->second)->socket().remote_endpoint().address().to_string();
-			info.owner = (iter->first);
-			info.port = ports_map_[info.owner];
-
-			msg.all_components.push_back(info);
-		}
-
-		// Send master message for this guy.
-		sendMasterMessageToComponent(new_session, msg);
-
-		// Create a component info message and send to all with a add message.
-		UpdateComponents update_msg;
-		update_msg.component.ip = new_session->socket().remote_endpoint().address().to_string();
-		update_msg.component.owner = new_session->getOwner();
-		update_msg.component.port = indicatePresence.port;
-		update_msg.operation = UpdateComponents::ADD;
-
-		sendUpdateComponentsMessageToAll(update_msg);
-
-		// Finally add this guy to the HashMap.
-		sessions_map_[new_session->getOwner()] = new_session;
-		ports_map_[new_session->getOwner()] = indicatePresence.port;
-
-		SRNP_PRINT_INFO << "New Connection received from port: "<< indicatePresence.port <<". Assigned owner ID: " << msg.owner;
-
-		boost::asio::async_read(new_session->socket(), boost::asio::buffer(new_session->in_buffer()), strand_.wrap(boost::bind(&MasterHubSession::handleRead, new_session, this, boost::asio::placeholders::error)));
-		MasterHubSession* new_session_ = new MasterHubSession(io_service_);
-		acceptor_.async_accept (new_session_->socket(), strand_.wrap(boost::bind(&MasterHub::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error)));
-	}
-	else
-	{
-		SRNP_PRINT_ERROR << "CONNECTION FAILED";
-		SRNP_PRINT_ERROR << "Error: " << e.message().c_str();
-		delete new_session;
-	}
+  for (const auto& session : targets) session->send(frame);
 }
 
-void MasterHub::sendUpdateComponentsMessageToAll(UpdateComponents msg)
-{
-	for(std::map <int, MasterHubSession*>::iterator iter = sessions_map_.begin(); iter != sessions_map_.end(); iter++)
-	{
-
-		std::ostringstream msg_stream;
-		boost::archive::text_oarchive msg_archive(msg_stream);
-		msg_archive << msg;
-		std::string out_msg_ = msg_stream.str();
-		// END
-
-		// Prepare header length
-		std::ostringstream size_stream;
-		size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_msg_.size();
-		if (!size_stream || size_stream.str().size() != sizeof(uint64_t))
-		{
-			SRNP_PRINT_FATAL << "Couldn't set stream size.";
-		}
-		std::string out_size_ = size_stream.str();
-
-		(iter->second)->sendAsyncMsg(out_size_);
-		(iter->second)->sendAsyncMsg(out_msg_);
-	}
-}
-
-void MasterHubSession::handleAsyncWriteMsg(const boost::system::error_code& ec)
-{
-	SRNP_PRINT_DEBUG << "[AsyncWrite handler]: Done writing to "<<owner_<<". Error: " << ec.message();
-}
-
-void MasterHub::sendMasterMessageToComponent(MasterHubSession *new_session, MasterMessage msg)
-{
-	std::ostringstream msg_stream;
-	boost::archive::text_oarchive msg_archive(msg_stream);
-	msg_archive << msg;
-	std::string out_msg_ = msg_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream size_stream;
-	size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_msg_.size();
-	if (!size_stream || size_stream.str().size() != sizeof(uint64_t))
-	{
-		SRNP_PRINT_FATAL << "Couldn't set stream size.";
-	}
-	std::string out_size_ = size_stream.str();
-
-	new_session->sendAsyncMsg(out_size_);
-	new_session->sendAsyncMsg(out_msg_);
-}
-
-
-MasterHub::~MasterHub()
-{
-
-}
-
-} /* namespace srnp */
-
-//void init()
-//{
-//	boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::info);
-//
-//	//boost::log::add_console_log(std::cout , boost::log::keywords::format = "[%TimeStamp%]: %Message%");
-//
-//}
-
-int main()
-{
-	boost::asio::io_service io;
-	srnp::srnp_print_setup("info");
-
-	srnp::MasterHub m (io, 12321);
-
-	io.run();
-}
+}  // namespace srnp

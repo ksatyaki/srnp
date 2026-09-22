@@ -1,56 +1,33 @@
-#include <iostream>
-#include <boost/asio.hpp>
+// Publishes a pair and watches another component's pair through a meta-pair.
 
-#include <srnp/srnp_kernel.h>
 #include <srnp/meta_pair_callback.hpp>
+#include <srnp/srnp_kernel.h>
+#include <srnp/srnp_print.h>
 
-class CallbackForTuple {
-public:
-	void callback_function(const srnp::Pair::ConstPtr& p, const int a)
-	{
-		SRNP_PRINT_DEBUG << "*****************************************";
-		SRNP_PRINT_DEBUG << "In callback!";
-		SRNP_PRINT_DEBUG << "Tuple: " << *p;
-		SRNP_PRINT_DEBUG << "Value: " << a;
-		SRNP_PRINT_DEBUG << "*****************************************";
-	}
-};
+#include <chrono>
+#include <cstdio>
+#include <thread>
 
+int main(int argc, char* argv[]) {
+  srnp::srnp_print_setup("debug");
 
-int main(int argn, char* args[], char* env[])
-{
-	srnp::srnp_print_setup("debug");
+  try {
+    srnp::initialize(argc, argv);
+  } catch (const srnp::InitError& e) {
+    std::fprintf(stderr, "could not start: %s\n", e.what());
+    return 1;
+  }
 
-	srnp::initialize(argn, args, env);
+  srnp::registerMetaCallback(1, "simple", [](const srnp::Pair::ConstPtr& pair) {
+    SRNP_INFO("meta target changed: {} = {}", pair->getKey(), pair->getValue());
+  });
 
-	printf("\nGo!\n");
+  for (int i = 0; i < 20; ++i) {
+    (void)srnp::setPair("counter", std::to_string(i));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
 
-	sleep(1);
-
-	CallbackForTuple callback_object;
-
-	srnp::setRemotePair(1, "ok", "OKOK");
-	
-	srnp::registerMetaCallback(1, "simple", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1, 1));
-	
-	int i = 40;
-	
-	while(i--) {
-		SRNP_PRINT_DEBUG << i;
-		usleep(500000);
-	}
-
-	srnp::cancelMetaCallback(1, "simple");
-
-	i = 10;
-	while(i--) {
-		SRNP_PRINT_DEBUG << i;
-		usleep(500000);
-	}
-
-	srnp::setRemotePair(1, "ok", "OKOK");
-	SRNP_PRINT_DEBUG << "HERE";
-	
-	srnp::shutdown();
-	return 0;
+  srnp::cancelMetaCallback(1, "simple");
+  srnp::shutdown();
+  return 0;
 }

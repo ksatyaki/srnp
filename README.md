@@ -1,15 +1,13 @@
-##SRNP - Simply Rewritten New PEIS
+# SRNP - Simply Rewritten New PEIS
 
+SRNP is a blackboard middleware. Components publish key/value pairs, subscribe
+to each other's pairs, and get callbacks when those change. It started as a
+hobby reimplementation of the PEIS Kernel by Mathias Broxvall
+(https://github.com/mbrx/peisecology) — the concepts, not the code.
 
-SRNP is what started as a hobby project.
-Currently a few of the peiskernel functions are available. 
-It's not even an alpha version now.
+## Functions available
 
-
-###Functions available
-
-Below are some implemented functions and their counter-parts in PEIS
-
+Below are some implemented functions and their counter-parts in PEIS.
 
 |S No.|PEIS Functions.               |SRNP Functions                 |
 |----:|:-----------------------------|:------------------------------|
@@ -17,70 +15,71 @@ Below are some implemented functions and their counter-parts in PEIS
 |    2|peiskmt_subscribe             |`srnp::registerSubscription`   |
 |    3|peiskmt_registerTupleCallback |`srnp::registerCallback`       |
 |    4|peiskmt_setStringTuple        |`srnp::setPair`                |
-|    5|peiskmt_setRemoteStringTuple  |REMOVED                        |
+|    5|peiskmt_setRemoteStringTuple  |`srnp::setRemotePair`          |
 
+## How it works
 
+`srnp-master` hands out owner ids and tells every component about the others.
+It carries no pairs. Components then talk to each other directly: each one runs
+a server holding its pair space, and a client that pushes updates to whoever
+subscribed.
 
-It is based on the PEIS Kernel by Mathias Broxwall.
+## Building
 
-https://github.com/mbrx/peisecology
+Needs a C++20 compiler and Boost (for Asio). GoogleTest is used for the tests,
+and downloaded automatically if it isn't already installed.
 
-									                           	   
-###What is SRNP?
+    cmake -S . -B build
+    cmake --build build
+    sudo cmake --install build
 
-It's a reimplementation of the PEIS Kernel in C++ using Boost for a large part. 
-It uses all principles from the PEIS Kernel - but it uses no source code from the
-original PEIS written in C. The concepts were programmed as I understood them.
-I did look at a few lines of the original code from time to time to get inspiration. 
-Though, I must admit that I couldn't understand a lot of the HARD-CORE C stuff.
-I hence implemented the protocol, etc., all by myself. 
+Add the install prefix's lib directory to `LD_LIBRARY_PATH` if it isn't already:
 
-I would love to have a PairView, a rewritten TupleView. I am not sure how soon, though.
-#### PairView is available at https://github.com/ksatyaki/PairView
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
 
-This README was created on 16/02/2015, when SRNP was 9 days old.
-Last updated: 11 March, 2015
+## Running
 
-###Installation
+Start the master, then point components at it:
 
-####SRNP
-Please create a separate directory for build.
-Change to that directory and do:
+    ./build/bin/srnp-master 12321
 
-	   cmake ../srnp
-	   make
-	   sudo make install
+    export SRNP_MASTER_IP=127.0.0.1
+    export SRNP_MASTER_PORT=12321
+    ./build/bin/simple2
 
-The default system installation path is used for installation.
-This is /usr/local on GNU/Linux systems. You can choose a different directory by
-changing the usual CMake options.
-Don't forget to add the lib directory to LD_LIBRARY_PATH.
+`SRNP_LOG_LEVEL` sets how much the master prints (trace, debug, info, warning,
+error, fatal, off). A component calls `srnp::srnp_print_setup` for the same.
 
-	  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+## Tests
 
-Depends:
-		Boost version 1.54
+    ctest --test-dir build --output-on-failure
 
-I think this is the first version which has Boost.Log.
-Surely works with 1.54 and 1.57, the latest.
+The unit tests cover the pair space and the wire codec. The integration tests
+run a real master and several real components over loopback.
 
-####PairView
-Please Create a separate directory for build.
-Change to that directory and do:
+Build with sanitizers to check the threading and lifetime behaviour:
 
-	   cmake ../PairView
-	   make
+    cmake -S . -B build-asan -DSRNP_SANITIZE=address,undefined
+    cmake -S . -B build-tsan -DSRNP_SANITIZE=thread
 
-Currently PairView is a not entirely great. So it is not installed.
-You can run PairView from this folder, however.
+## Changes in 0.2.0
 
-Alternatively, you could use the .pro file to build the package with qmake.
+- Requires C++20 and a current Boost. The old Boost-1.54-era code no longer
+  compiled at all: `io_service`, `asio::strand` and the rest are long gone.
+- **The wire format changed and is not compatible with 0.1.** Messages are now
+  a fixed 16 byte binary header plus a length-prefixed binary payload, instead
+  of Boost text archives. Rebuild every component, including PairView.
+- `initialize` throws `srnp::InitError` instead of calling `exit`, and
+  `shutdown` returns instead of ending the process.
+- The Python wrapper (Boost.Python against Python 2.7, incomplete and not
+  built) and the ROS 1 catkin files are gone.
 
-Depends:
-		Qt4 or Qt5
+## Related
 
-Tested with both Qt4 and Qt5.
+PairView, a viewer for the pair space, lives at
+https://github.com/ksatyaki/PairView — it needs a rebuild against this version.
 
+## Licence
 
-
-#### NOTE: THIS SOFTWARE IS LICENSED UNDER THE GNU GENERAL PUBLIC LICENSE v3. However, dependencies have different licences and are not included with this package.
+This software is licensed under the GNU General Public License v3.
+Dependencies have different licences and are not included with this package.

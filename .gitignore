@@ -1,2 +1,6 @@
 # What to ignore
 Todo*
+
+# Build directories
+build/
+build-*/

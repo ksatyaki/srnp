@@ -1,51 +1,32 @@
-#include <iostream>
-#include <boost/asio.hpp>
+// Reads a pair through a meta-pair that names it.
 
 #include <srnp/srnp_kernel.h>
-#include <srnp/meta_pair_callback.hpp>
+#include <srnp/srnp_print.h>
 
+#include <chrono>
+#include <cstdio>
+#include <thread>
 
-int main(int argn, char* args[], char* env[])
-{
-	srnp::srnp_print_setup("debug");
+int main(int argc, char* argv[]) {
+  srnp::srnp_print_setup("debug");
 
-	srnp::initialize(argn, args, env);
+  try {
+    srnp::initialize(argc, argv);
+  } catch (const srnp::InitError& e) {
+    std::fprintf(stderr, "could not start: %s\n", e.what());
+    return 1;
+  }
 
-	printf("\nGo!\n");
+  (void)srnp::setPair("target", "the real value");
+  (void)srnp::setMetaPair(srnp::getOwnerID(), "pointer", srnp::getOwnerID(), "target");
 
-	sleep(1);
-	
-	srnp::registerMetaSubscription(1, "simple");
-	
-	int i = 40;
-	
-	while(i--) {
-		srnp::Pair::ConstPtr pair = srnp::getPairIndirectly(1, "simple");
-		if(pair) {
-			SRNP_PRINT_INFO << "GOT PAIR!";
-			SRNP_PRINT_INFO << "Key: " << pair->getKey() << ", and Value: " << pair->getValue();
-		}
-		else {
-			SRNP_PRINT_INFO << "Nothing yet.";
-		}
-		usleep(500000);
-	}
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-	srnp::cancelMetaSubscription(1, "simple");
+  if (const auto pair = srnp::getPairIndirectly(srnp::getOwnerID(), "pointer"))
+    SRNP_INFO("followed the meta-pair to: {}", pair->getValue());
+  else
+    SRNP_ERROR("the meta-pair did not resolve");
 
-	i = 10;
-	while(i--) {
-		srnp::Pair::ConstPtr pair = srnp::getPairIndirectly(1, "simple");
-		if(pair) {
-			SRNP_PRINT_INFO << "GOT PAIR!";
-			SRNP_PRINT_INFO << "Key: " << pair->getKey() << ", and Value: " << pair->getValue();
-		}
-		else {
-			SRNP_PRINT_INFO << "Nothing yet.";
-		}
-		usleep(500000);
-	}
-	
-	srnp::shutdown();
-	return 0;
+  srnp::shutdown();
+  return 0;
 }

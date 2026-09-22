@@ -1,6 +1,6 @@
 /*
-  server.cpp
-  
+  server.cpp - Implementation of the server side.
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -16,707 +16,316 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
-#include "srnp/server.h"
 
-namespace srnp
-{
+#include <srnp/msgs/codec.h>
+#include <srnp/server.h>
+#include <srnp/srnp_print.h>
 
-/** MASTERLINK CLASS **/
-MasterLink::MasterLink(boost::asio::io_service& service, std::string master_ip, std::string master_port, boost::shared_ptr <ServerSession>& my_client_session, Server* server, int desired_owner_id):
-		socket_ (service),
-		my_client_session_ (my_client_session),
-		resolver_ (service),
-		master_ip_(master_ip),
-		master_port_(master_port)
-{
-	tcp::resolver::query query(master_ip, master_port);
-	tcp::resolver::iterator endpoint_iterator_ = resolver_.resolve(query);
+#include <boost/asio/as_tuple.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/strand.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/connect.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/read.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/write.hpp>
 
-	try {
-		//SRNP_PRINT_DEBUG << "HERE NOW!";
-		boost::asio::connect(socket_, endpoint_iterator_);
-	} catch (std::exception& ex) {
-		SRNP_PRINT_FATAL << "Exception when trying to connect to master: " << ex.what();
-		exit(0);
-	}
+#include <utility>
 
-	SRNP_PRINT_INFO << "Connected to master!\n";
+namespace srnp {
 
-	indicatePresence(server, desired_owner_id);
+/** SERVER SESSION **/
 
-	// READ STUFF.
+ServerSession::ServerSession(tcp::socket socket, Strand strand, Server& server)
+    : channel_(std::make_shared<FrameChannel>(std::move(socket), std::move(strand))),
+      server_(server) {}
 
-	boost::asio::read (socket_, boost::asio::buffer(in_size_));
+asio::awaitable<void> ServerSession::run() {
+  // Keeps the session alive for as long as the loop runs, which replaces
+  // the old hand-managed delete.
+  auto self = shared_from_this();
 
-	uint64_t data_size;
-	// Deserialize the length.
-	std::istringstream size_stream(std::string(in_size_.elems, in_size_.size()));
-	size_stream >> std::hex >> data_size;
+  try {
+    for (;;) handle(co_await channel_->read());
+  } catch (const wire::DecodeError& e) {
+    SRNP_WARN("dropping a connection that sent a bad frame: {}", e.what());
+  } catch (const std::exception& e) {
+    SRNP_DEBUG("connection closed: {}", e.what());
+  }
 
-	boost::system::error_code error_co;
-	in_data_.resize(data_size);
-	boost::asio::read(socket_, boost::asio::buffer(in_data_), error_co);
-
-	// If we reach here, we are sure that we got a MasterMessage.
-
-	std::istringstream mm_stream(std::string(in_data_.data(), in_data_.size()));
-	boost::archive::text_iarchive header_archive(mm_stream);
-
-	//SRNP_PRINT_TRACE << "READ EVERTHING!";
-
-	header_archive >> mm_;
-
-	for(std::vector <ComponentInfo>::iterator iter = mm_.all_components.begin(); iter != mm_.all_components.end(); iter++)
-	{
-		//SRNP_PRINT_DEBUG << "[SERVER]: Adding these information";
-		//SRNP_PRINT_DEBUG << "[SERVER]: PORT: " << iter->port;
-		//SRNP_PRINT_DEBUG << "[SERVER]: OWNER: " << iter->owner;
-		//SRNP_PRINT_DEBUG << "[SERVER]: IP: " << iter->ip;
-
-		if(iter->ip.compare("127.0.0.1") == 0)
-		{
-			iter->ip = master_ip;
-			//SRNP_PRINT_DEBUG << "IP 127.0.0.1 should be changed to this: " << iter->ip;
-		}
-	}
-
-	server->owner() = mm_.owner;
-	//SRNP_PRINT_DEBUG << "[SERVER]: Owner ID: "<< server->owner();
+  channel_->close();
 }
 
-void MasterLink::indicatePresence(Server* server, int desired_owner_id)
-{
-	IndicatePresence indicatePresenceMsg;
-
-	if(desired_owner_id != -1)
-	{
-		indicatePresenceMsg.force_owner_id = true;
-		indicatePresenceMsg.owner_id = desired_owner_id;
-	}
-
-	// Calc port:
-	std::stringstream sss;
-	sss << server->getPort();
-	//SRNP_PRINT_DEBUG << "Port computed is: " << sss.str();
-
-	indicatePresenceMsg.port = sss.str();
-
-	// Serialize this message.
-	std::ostringstream indicate_msg_stream;
-	boost::archive::text_oarchive indicate_msg_archive (indicate_msg_stream);
-	indicate_msg_archive << indicatePresenceMsg;
-	std::string out_indicate_msg = indicate_msg_stream.str();
-
-	// SEND THE PORT WE ARE ON, FIRST. MOST IMPORTANT.
-	std::ostringstream size_stream;
-	size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_indicate_msg.size();
-	std::string out_size = size_stream.str();
-
-	boost::system::error_code error_co;
-	boost::asio::write (socket_, boost::asio::buffer(out_size), error_co);
-	//SRNP_PRINT_DEBUG << "[MasterLink]: Writing port size to master_hub" << error_co.message();
-
-	boost::asio::write (socket_, boost::asio::buffer(out_indicate_msg), error_co);
-	//SRNP_PRINT_DEBUG << "[MasterLink]: Writing port to master_hub" << error_co.message();
+void ServerSession::handle(const Frame& frame) {
+  switch (frame.header.type) {
+    case wire::MessageType::PairNoCopy: handleLocalPair(); break;
+    case wire::MessageType::Pair: handleIncomingPair(frame); break;
+    case wire::MessageType::PairUpdate:
+    case wire::MessageType::PairUpdateOne: handlePairUpdate(frame); break;
+    case wire::MessageType::Subscription: handleSubscription(frame); break;
+    case wire::MessageType::AttachClient: server_.attachClient(shared_from_this()); break;
+    default:
+      throw wire::DecodeError("a server cannot handle this message type");
+  }
 }
 
-void MasterLink::sendMMToOurClientAndWaitForUCMsg()
-{
+Pair::ConstPtr ServerSession::applyAndNotify(const Pair& pair) {
+  Pair::ConstPtr snapshot;
+  Pair::CallbackFunction universal;
 
-	//SRNP_PRINT_TRACE << "\n!!!!!We are waiting!!!!!";
-	my_client_session_->sendMasterMsgToOurClient(mm_);
+  {
+    std::lock_guard lock(server_.pairSpace().mutex);
+    snapshot = std::make_shared<const Pair>(server_.pairSpace().addPair(pair));
+    universal = server_.pairSpace().u_callback_;
+  }
 
-	// Start listening for update components messages.
-	boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
+  if (universal) universal(snapshot);
+  for (const auto& [handle, callback] : snapshot->callbacks_) callback(snapshot);
 
+  return snapshot;
 }
 
-void MasterLink::handleUpdateComponentsMsg(const boost::system::error_code& e)
-{
-	if(!e)
-	{
-		uint64_t data_size;
+void ServerSession::handleLocalPair() {
+  auto pair = server_.pairQueue().outgoing.pop();
+  if (!pair) {
+    SRNP_ERROR("got a local pair notification with nothing queued behind it");
+    return;
+  }
 
-		std::istringstream size_stream (std::string(in_size_.elems, in_size_.size()));
-		size_stream >> std::hex >> data_size;
-
-		in_data_.resize(data_size);
-		boost::system::error_code errore;
-		boost::asio::read(socket_, boost::asio::buffer(in_data_), errore);
-
-		//SRNP_PRINT_TRACE << "[Server]: Sync receive of UC message from MasterHub: " << errore.message();
-		std::istringstream uc_stream(std::string(in_data_.data(), in_data_.size()));
-		boost::archive::text_iarchive header_archive(uc_stream);
-
-		UpdateComponents uc;
-		header_archive >> uc;
-
-		//SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: IP: " << uc.component.ip;
-		//SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: OWNER: " << uc.component.owner;
-		//SRNP_PRINT_DEBUG << "[UpdateComponentsMsg]: PORT: " << uc.component.port;
-
-		if(uc.component.ip.compare("127.0.0.1") == 0)
-		{
-			uc.component.ip = master_ip_;
-			//SRNP_PRINT_DEBUG << "I changed ip to this: " << uc.component.ip;
-		}
-
-		my_client_session_->sendUpdateComponentsMsgToOurClient(uc);
-		boost::asio::async_read(socket_, boost::asio::buffer(in_size_), boost::bind(&MasterLink::handleUpdateComponentsMsg, this, boost::asio::placeholders::error));
-	}
-	else
-	{
-		SRNP_PRINT_FATAL << "Master seems disconnected! God we're in deadly peril.";
-		// Do something to attempt and reconnect.
-	}
+  // A component only ever publishes under its own id.
+  pair->setOwner(server_.owner());
+  sendPairUpdate(*applyAndNotify(*pair));
 }
 
-
-/** SERVERSESSION CLASS **/
-
-int ServerSession::session_counter = 0;
-
-ServerSession::ServerSession (boost::asio::io_service& service, PairSpace& pair_space,
-							  PairQueue& pair_queue, int& owner, Server* server) :
-		socket_ (service),
-		pair_queue_ (pair_queue),
-		pair_space_ (pair_space),
-		owner_ (owner),
-		server_ (server)
-{
-
-
+void ServerSession::handleIncomingPair(const Frame& frame) {
+  auto pair = decodePayload<Pair>(frame.bytes());
+  // The sender addressed this to us, so we own it once it lands.
+  pair.setOwner(server_.owner());
+  sendPairUpdate(*applyAndNotify(pair));
 }
 
-ServerSession::~ServerSession ()
-{
-	socket_.close();
+void ServerSession::handlePairUpdate(const Frame& frame) {
+  // Someone else's pair that we subscribed to. Apply it and run callbacks,
+  // but don't forward it on: we are not its owner.
+  applyAndNotify(decodePayload<Pair>(frame.bytes()));
 }
 
-void ServerSession::handleReadHeaderSize (const boost::system::error_code& e)
-{
-	//SRNP_PRINT_TRACE << "[In Server::handleReadHeaderSize]: We got error: " << e.message();
+void ServerSession::handleSubscription(const Frame& frame) {
+  const auto message = decodePayload<Subscription>(frame.bytes());
+  const bool wildcard = message.key == kWildcardKey;
 
-	if(!e)
-	{
-		uint64_t header_size;
-		// Deserialize the length.
-		std::istringstream headersize_stream(std::string(in_header_size_buffer_.elems, sizeof(uint64_t)));
-		headersize_stream >> std::hex >> header_size;
-		//
+  if (!wildcard && message.owner_id != server_.owner()) {
+    SRNP_WARN("ignoring a subscription meant for {}", message.owner_id);
+    return;
+  }
+  if (message.subscriber == server_.owner()) {
+    SRNP_WARN("ignoring a subscription from ourselves");
+    return;
+  }
 
-		in_header_buffer_.resize (header_size);
-		boost::asio::async_read(socket_, boost::asio::buffer(in_header_buffer_), boost::bind(&ServerSession::handleReadHeader, this, boost::asio::placeholders::error) );
-	}
-	else
-	{
-		ServerSession::session_counter--;
-		delete this;
-	}
+  // Collected under the lock, sent after releasing it.
+  std::vector<Pair> to_send;
+  {
+    std::lock_guard lock(server_.pairSpace().mutex);
+    auto& space = server_.pairSpace();
+
+    if (!message.registering) {
+      if (wildcard)
+        space.removeSubscriptionToAll(message.subscriber);
+      else
+        space.removeSubscription(message.owner_id, message.key, message.subscriber);
+      return;
+    }
+
+    if (wildcard) {
+      space.addSubscriptionToAll(message.subscriber);
+      // Send everything we own so the new subscriber starts up to date.
+      for (const auto& [key, pair] : space.getAllPairs())
+        if (pair.getOwner() == server_.owner() && pair.getType() != Pair::Type::Invalid)
+          to_send.push_back(pair);
+    } else {
+      space.addSubscription(message.owner_id, message.key, message.subscriber);
+      if (const Pair* pair = space.find(message.owner_id, message.key);
+          pair != nullptr && pair->getType() != Pair::Type::Invalid) {
+        to_send.push_back(*pair);
+      }
+    }
+  }
+
+  for (const auto& pair : to_send) sendPairUpdate(pair, message.subscriber);
 }
 
-void ServerSession::handleReadHeader (const boost::system::error_code& e)
-{
-	//SRNP_PRINT_TRACE << "[Server::handleReadHeader]: We got error: " << e.message();
+void ServerSession::sendPairUpdate(const Pair& pair, int subscriber) {
+  // Nobody is listening, so there is nothing to forward.
+  if (pair.subscribers_.empty()) return;
 
-	if(!e)
-	{
-		uint64_t data_size;
-		// Deserialize the length.
-		std::istringstream header_stream(std::string(in_header_buffer_.data(), in_header_buffer_.size()));
-		boost::archive::text_iarchive header_archive(header_stream);
+  auto client_session = server_.myClientSession();
+  if (!client_session) {
+    SRNP_WARN("cannot forward a pair update: our client is not connected");
+    return;
+  }
 
-		MessageHeader header;
-		header_archive >> header;
-		//
+  const bool to_one = subscriber != kAnyOwner;
+  const auto type = to_one ? wire::MessageType::PairUpdateOne : wire::MessageType::PairUpdate;
 
-		if(header.type != MessageHeader::PAIR_NOCOPY)
-			in_data_buffer_.resize (header.length);
-
-		if(header.type == MessageHeader::PAIR_NOCOPY)
-		{
-			// CRITICAL SECTION!!!
-
-			pair_queue_.pair_queue_mutex.lock();
-			Pair tuple = pair_queue_.pair_queue.front();
-			pair_queue_.pair_queue.pop();
-			pair_queue_.pair_queue_mutex.unlock();
-
-			// Redundant. But no loss.
-			tuple.setOwner(owner_);
-
-			pair_space_.mutex.lock();
-			pair_space_.addPair(tuple);
-			Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithOwnerAndKey(tuple.getOwner(), tuple.getKey()))));
-			pair_space_.mutex.unlock();
-
-			if(pair_space_.u_callback_ != NULL) {
-				pair_space_.u_callback_(pair_to_callback);
-			}
-
-			if(pair_to_callback->callbacks_.size() != 0)
-			{
-				if(owner_ != -1) {
-					//SRNP_PRINT_DEBUG << "Making a simple callback";
-					
-					for(std::map<CallbackHandle, Pair::CallbackFunction>::const_iterator i = pair_to_callback->callbacks_.begin(); i != pair_to_callback->callbacks_.end(); i++) {
-						i->second(pair_to_callback);	
-					}
-				}
-			}
-		
-			sendPairUpdateToClient(*pair_to_callback);
-			startReading();
-		}
-		else if(header.type == MessageHeader::PAIR_UPDATE)
-		{
-			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadPairUpdate, this, boost::asio::placeholders::error) );
-		}
-		else if(header.type == MessageHeader::SUBSCRIPTION)
-		{
-			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadSubscription, this, boost::asio::placeholders::error) );
-		}
-		else if(header.type == MessageHeader::PAIR)
-		{
-			boost::asio::async_read(socket_, boost::asio::buffer(in_data_buffer_), boost::bind(&ServerSession::handleReadPair, this, boost::asio::placeholders::error) );
-		}
-	}
-	else
-	{
-		ServerSession::session_counter--;
-		delete this;
-	}
-
+  // Hand the pair over the queue and announce it under the same lock, so
+  // the client pops exactly the pair this frame refers to.
+  auto guard = server_.pairQueue().updates.lock();
+  server_.pairQueue().updates.push(pair);
+  client_session->send(wire::frame(type, {}, to_one ? subscriber : kAnyOwner));
 }
 
-void ServerSession::sendPairUpdateToClient(const Pair& to_up, int sub_only_one)
-{
-	if(to_up.subscribers_.size() != 0)
-	{
-		std::string out_data_ = "";
-		// END
+/** MASTER LINK **/
 
-		// Setup the message header.
-		srnp::MessageHeader header (0, srnp::MessageHeader::PAIR_UPDATE);
-
-		if(sub_only_one != -1)
-		{
-			//SRNP_PRINT_DEBUG << "Setting header to special value...";
-			header.type = MessageHeader::PAIR_UPDATE_2;
-			header.subscriber__ = sub_only_one;
-		}
-		
-		// Serialize the data first so we know how large it is.
-		std::ostringstream header_archive_stream;
-		boost::archive::text_oarchive header_archive(header_archive_stream);
-		header_archive << header;
-		std::string out_header_ = header_archive_stream.str();
-		// END
-
-		// Prepare header length
-		std::ostringstream header_size_stream;
-		header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-		if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-		{
-			SRNP_PRINT_FATAL << "[sendPairUpdate]: Couldn't set stream size!";
-		}
-		std::string  out_header_size_ = header_size_stream.str();
-
-		// CRITICAL SECTION!!!
-		// Be sure that once we have pushed into the queue, we should also send the data.
-		// Because if we don't, another thread could push to queue and send after we have
-		// just pushed. And on the receiving end, our member will be popped.
-		boost::mutex::scoped_lock scoped_mutex_lock(pair_queue_.pair_update_queue_mutex);
-		pair_queue_.pair_update_queue.push(to_up);
-		//SRNP_PRINT_DEBUG << "Queue push pui - pair update";
-
-		//SRNP_PRINT_DEBUG << "Writing Data To Client.";
-
-		boost::mutex::scoped_lock write_lock (server_->my_client_session()->socket_write_mutex);
-		server_->my_client_session()->sendDataToClient (out_header_size_, out_header_, out_data_);
-		//SRNP_PRINT_DEBUG << "SEND DATA pui - pair update";
-	}
-	//else
-	//SRNP_PRINT_DEBUG << "No Subscribers...";
+MasterLink::MasterLink(asio::io_context& io, std::string master_ip, std::string master_port)
+    : master_ip_(std::move(master_ip)), master_port_(std::move(master_port)) {
+  tcp::resolver resolver(io);
+  tcp::socket socket(io);
+  asio::connect(socket, resolver.resolve(master_ip_, master_port_));
+  channel_ = std::make_shared<FrameChannel>(std::move(socket), asio::make_strand(io));
 }
 
-bool ServerSession::sendDataToClient(const std::string& out_header_size, const std::string& out_header, const std::string& out_data)
-{
+MasterMessage MasterLink::registerWithMaster(unsigned short our_port, int desired_owner_id) {
+  IndicatePresence presence;
+  presence.port = std::to_string(our_port);
+  presence.force_owner_id = desired_owner_id != kAnyOwner;
+  presence.owner_id = desired_owner_id;
 
-	boost::system::error_code error;
+  const auto request = wire::frameOf(wire::MessageType::IndicatePresence, presence);
+  asio::write(channel_->socket(), asio::buffer(request));
 
-	boost::asio::write(socket_, boost::asio::buffer(out_header_size), error);
-	//SRNP_PRINT_TRACE << "[sendPairUp]: Done writing header size. Error: " << error.message();
+  // Registration is synchronous: nothing else can happen until we have an id.
+  std::array<std::byte, wire::kHeaderSize> header_bytes{};
+  asio::read(channel_->socket(), asio::buffer(header_bytes));
+  const auto header = wire::decodeHeader(header_bytes);
 
-	boost::asio::write(socket_, boost::asio::buffer(out_header), error);
-	//SRNP_PRINT_TRACE << "[sendPairUp]: Done writing header. Error: " << error.message();
+  if (header.type != wire::MessageType::MasterMessage)
+    throw wire::DecodeError("expected the master's reply, got something else");
 
-	if(out_data.size() != 0)
-	{
-		boost::asio::write(socket_, boost::asio::buffer(out_data), error);
-		//SRNP_PRINT_TRACE << "[sendPairUp]: Done writing data. Error: " << error.message();
-	}
+  std::vector<std::byte> payload(header.payload_length);
+  asio::read(channel_->socket(), asio::buffer(payload));
+  auto message = decodePayload<MasterMessage>(payload);
 
-	if(!error)
-		return true;
-	else return false;
+  // The master sees loopback addresses for components on its own host.
+  // Swap in the address we used to reach it so they are reachable for us too.
+  for (auto& component : message.all_components)
+    if (component.ip == "127.0.0.1") component.ip = master_ip_;
+
+  return message;
 }
 
-void ServerSession::handleReadPair(const boost::system::error_code& e)
-{
-	if(!e)
-	{
-		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
-		boost::archive::text_iarchive data_archive(data_stream);
-	    Pair tuple;
-		data_archive >> tuple;
-		tuple.setOwner(owner_);
+asio::awaitable<void> MasterLink::run(ServerSessionPtr client_session) {
+  try {
+    for (;;) {
+      const auto frame = co_await channel_->read();
+      if (frame.header.type != wire::MessageType::UpdateComponents)
+        throw wire::DecodeError("the master sent an unexpected message type");
 
-		pair_space_.mutex.lock();
-		pair_space_.addPair(tuple);
-		Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithOwnerAndKey(tuple.getOwner(), tuple.getKey()))));
-		pair_space_.mutex.unlock();
+      auto update = decodePayload<UpdateComponents>(frame.bytes());
+      if (update.component.ip == "127.0.0.1") update.component.ip = master_ip_;
 
-		if(pair_space_.u_callback_ != NULL) {
-			pair_space_.u_callback_(pair_to_callback);
-		}
-
-		if(pair_to_callback->callbacks_.size() != 0)
-		{
-			if(owner_ != -1) {
-				//SRNP_PRINT_DEBUG << "Making a simple callback";
-					
-				for(std::map<CallbackHandle, Pair::CallbackFunction>::const_iterator i = pair_to_callback->callbacks_.begin(); i != pair_to_callback->callbacks_.end(); i++) {
-					i->second(pair_to_callback);	
-				}
-			}
-		}
-		
-		sendPairUpdateToClient(*pair_to_callback);
-		startReading();
-	}
-	else
-	{
-		ServerSession::session_counter--;
-		delete this;
-	}
+      client_session->send(wire::frameOf(wire::MessageType::UpdateComponents, update));
+    }
+  } catch (const std::exception& e) {
+    if (closing_.load(std::memory_order_relaxed))
+      SRNP_DEBUG("stopped listening to the master");
+    else
+      SRNP_ERROR("lost the connection to the master: {}", e.what());
+  }
 }
 
-void ServerSession::handleReadSubscription(const boost::system::error_code& e)
-{
-	if(!e)
-	{
-		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
-		boost::archive::text_iarchive data_archive(data_stream);
-		SubscriptionORCallback subscriptionORCallbackMsg;
-		data_archive >> subscriptionORCallbackMsg;
-		//SRNP_PRINT_DEBUG << "We got a subscription request: " << subscriptionORCallbackMsg.subscriber << ", " << subscriptionORCallbackMsg.key;
-
-		if(subscriptionORCallbackMsg.owner_id != this->owner_ && subscriptionORCallbackMsg.key.compare("*") != 0){
-			SRNP_PRINT_WARNING << "Got a subscription/cancellation message, not meant for us, but for: " << subscriptionORCallbackMsg.owner_id;
-			return;
-		}
-
-		if(subscriptionORCallbackMsg.subscriber == this->owner_) {
-			SRNP_PRINT_FATAL << "Got a subscription message from ourself!";
-			return;
-		}
-		
-		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
-		
-		//SRNP_PRINT_DEBUG << "Registering/cancelling a subscription on our own sweet pair.";
-		if(subscriptionORCallbackMsg.registering)
-		{
-			if(subscriptionORCallbackMsg.key.compare("*") == 0)
-			{
-				pair_space_.addSubscriptionToAll(subscriptionORCallbackMsg.subscriber);
-				
-				const std::vector <Pair>& all_keys = pair_space_.getAllPairs();
-				
-				for(std::vector <Pair>::const_iterator iter = all_keys.begin(); iter != all_keys.end(); iter++)
-				{
-					//SRNP_PRINT_DEBUG << "Sending a pair to subscriber fellow...";
-					if(iter->getOwner() == this->owner_)
-					{
-						//SRNP_PRINT_DEBUG << "Subscriber: " << subscriptionORCallbackMsg.subscriber;
-						this->server_->my_client_session()->sendPairUpdateToClient(*iter, subscriptionORCallbackMsg.subscriber);
-					}
-				}
-			}
-			else
-			{
-				pair_space_.addSubscription(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
-
-				const std::vector <Pair>::const_iterator pairIterator = pair_space_.getPairIteratorWithOwnerAndKey(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key);
-
-				if(pairIterator->getType() != Pair::INVALID)
-					this->server_->my_client_session()->sendPairUpdateToClient(*pairIterator, subscriptionORCallbackMsg.subscriber);
-				else {
-					SRNP_PRINT_DEBUG << "We got subscription. But we don't send now. We haven't published it yet.";
-				}
-			}
-				
-		}
-		else
-		{
-			if(subscriptionORCallbackMsg.key.compare("*") == 0)
-				pair_space_.removeSubscriptionToAll(subscriptionORCallbackMsg.subscriber);
-			else
-				pair_space_.removeSubscription(subscriptionORCallbackMsg.owner_id, subscriptionORCallbackMsg.key, subscriptionORCallbackMsg.subscriber);
-		}
-
-		startReading();
-	}
-	else
-	{
-		ServerSession::session_counter--;
-		delete this;
-	}
-
+void MasterLink::close() {
+  closing_.store(true, std::memory_order_relaxed);
+  channel_->close();
 }
 
-void ServerSession::handleReadPairUpdate (const boost::system::error_code& e)
-{
-	if(!e)
-	{
-		std::istringstream data_stream (std::string(in_data_buffer_.data(), in_data_buffer_.size()));
-		boost::archive::text_iarchive data_archive(data_stream);
+/** SERVER **/
 
-		Pair tuple;
-		data_archive >> tuple;
-		//SRNP_PRINT_DEBUG << "We got a PairUpdate: " << tuple;
+Server::Server(asio::io_context& io, std::string master_ip, std::string master_port,
+               PairSpace& pair_space, PairQueue& pair_queue, int desired_owner_id)
+    : io_(io),
+      acceptor_strand_(asio::make_strand(io)),
+      acceptor_(io, tcp::endpoint(tcp::v4(), 0)),
+      pair_space_(pair_space),
+      pair_queue_(pair_queue) {
+  port_ = acceptor_.local_endpoint().port();
 
-		pair_space_.mutex.lock();
-		pair_space_.addPair(tuple);
-		Pair::ConstPtr pair_to_callback = Pair::ConstPtr(new Pair(*(pair_space_.getPairIteratorWithOwnerAndKey(tuple.getOwner(), tuple.getKey()))));
-		pair_space_.mutex.unlock();
+  master_link_ = std::make_unique<MasterLink>(io_, std::move(master_ip), std::move(master_port));
+  welcome_ = master_link_->registerWithMaster(port_, desired_owner_id);
+  owner_id_.store(welcome_.owner, std::memory_order_relaxed);
+  SRNP_INFO("registered with the master as owner {}", welcome_.owner);
 
-		if(pair_space_.u_callback_ != NULL) {
-			pair_space_.u_callback_(pair_to_callback);
-		}
-
-		if(pair_to_callback->callbacks_.size() != 0)
-		{
-			if(owner_ != -1) {
-				//SRNP_PRINT_DEBUG << "Making a simple callback";
-				for(std::map<CallbackHandle, Pair::CallbackFunction>::const_iterator i = pair_to_callback->callbacks_.begin(); i != pair_to_callback->callbacks_.end(); i++) {
-					i->second(pair_to_callback);	
-				}
-			}
-		}
-		
-		startReading();
-	}
-	else
-	{
-		ServerSession::session_counter--;
-		delete this;
-	}
-
+  asio::co_spawn(acceptor_strand_, acceptLoop(), asio::detached);
+  startWorkers();
 }
 
-void ServerSession::handleWrite (const boost::system::error_code& e)
-{
-	if(!e)
-	{
-		boost::asio::async_read(socket_, boost::asio::buffer(in_header_buffer_), boost::bind(&ServerSession::handleReadHeader, this, boost::asio::placeholders::error) );
-	}
-	else
-	{
-		ServerSession::session_counter--;
-		delete this;
-	}
+void Server::startWorkers() {
+  // Four threads so a user callback that blocks doesn't stall everything else.
+  for (int i = 0; i < 4; ++i) workers_.emplace_back([this] { io_.run(); });
 }
 
-boost::system::error_code ServerSession::sendMasterMsgToOurClient(MasterMessage msg)
-{
-	std::ostringstream msg_stream;
-	boost::archive::text_oarchive msg_archive(msg_stream);
-	msg_archive << msg;
-	out_msg_ = msg_stream.str();
-	// END
+asio::awaitable<void> Server::acceptLoop() {
+  for (;;) {
+    auto [error, socket] =
+        co_await acceptor_.async_accept(asio::as_tuple(asio::use_awaitable));
+    if (error) {
+      if (!stopped_.load(std::memory_order_relaxed))
+        SRNP_ERROR("stopped accepting connections: {}", error.message());
+      co_return;
+    }
 
-	MessageHeader header;
-	header.length = out_msg_.size();
-	header.type = MessageHeader::MM;
-	std::ostringstream msg_header_stream;
-	boost::archive::text_oarchive msg_header_archive (msg_header_stream);
-	msg_header_archive << header;
-	out_header_ = msg_header_stream.str();
-
-	// Prepare header length
-	std::ostringstream size_stream;
-	size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_header_.size();
-	if (!size_stream || size_stream.str().size() != sizeof(uint64_t))
-	{
-		// Something went wrong, inform the caller.
-		/*
-					boost::system::error_code error(boost::asio::error::invalid_argument);
-					socket_.io_service().post(boost::bind(handler, error));
-					return;
-
-		 */
-	}
-	out_size_ = size_stream.str();
-
-	boost::system::error_code error;
-	boost::asio::write(socket_, boost::asio::buffer(out_size_), error);
-	//SRNP_PRINT_DEBUG << "[MM SIZE]: Sent" << error.message();
-
-	boost::asio::write(socket_, boost::asio::buffer(out_header_), error);
-	//SRNP_PRINT_DEBUG << "[MM HEADER]: Sent" << error.message();
-
-	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
-	//SRNP_PRINT_DEBUG << "[MM MSG]: Sent" << error.message();
-
-	return error;
+    auto session =
+        std::make_shared<ServerSession>(std::move(socket), asio::make_strand(io_), *this);
+    auto& strand = session->strand();
+    asio::co_spawn(strand, session->run(), asio::detached);
+  }
 }
 
-boost::system::error_code ServerSession::sendUpdateComponentsMsgToOurClient(UpdateComponents msg)
-{
-	// First Remove all subscriptions from this fellow.
-	if(msg.operation == UpdateComponents::REMOVE)
-	{
-		//pair_space_.mutexLock();
-		boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
-		pair_space_.removeSubscriptionToAll(msg.component.owner);
-		//pair_space_.mutexUnlock();
-	}
-	
-	std::ostringstream msg_stream;
-	boost::archive::text_oarchive msg_archive(msg_stream);
-	msg_archive << msg;
-	out_msg_ = msg_stream.str();
-	// END
+void Server::attachClient(ServerSessionPtr session) {
+  {
+    std::lock_guard lock(client_session_mutex_);
+    if (my_client_session_) {
+      SRNP_WARN("a second connection claimed to be our client; ignoring it");
+      return;
+    }
+    my_client_session_ = session;
+  }
 
-	MessageHeader header;
-	header.length = out_msg_.size();
-	header.type = MessageHeader::UC;
-	std::ostringstream msg_header_stream;
-	boost::archive::text_oarchive msg_header_archive (msg_header_stream);
-	msg_header_archive << header;
-	out_header_ = msg_header_stream.str();
-
-	// Prepare header length
-	std::ostringstream size_stream;
-	size_stream << std::setw(sizeof(uint64_t)) << std::hex << out_header_.size();
-	if (!size_stream || size_stream.str().size() != sizeof(uint64_t))
-	{
-		SRNP_PRINT_FATAL << "Couldn't set stream size.";
-	}
-	out_size_ = size_stream.str();
-
-	boost::system::error_code error;
-	boost::asio::write(socket_, boost::asio::buffer(out_size_), error);
-	//SRNP_PRINT_DEBUG << "[UC SIZE]: Sent", error.message();
-
-	boost::asio::write(socket_, boost::asio::buffer(out_header_), error);
-	//SRNP_PRINT_DEBUG << "[UC HEADER]: Sent", error.message();
-
-	boost::asio::write(socket_, boost::asio::buffer(out_msg_), error);
-	//SRNP_PRINT_DEBUG << "[UC MSG]: Sent", error.message();
-
-	return error;
+  // Our client has no other way to learn its owner id or its peers.
+  session->send(wire::frameOf(wire::MessageType::MasterMessage, welcome_));
+  // Only now start streaming later joins and leaves to it.
+  asio::co_spawn(master_link_->strand(), master_link_->run(std::move(session)),
+                 asio::detached);
 }
 
-
-
-Server::Server (boost::asio::io_service& service, std::string master_hub_ip, std::string master_hub_port, PairSpace& pair_space, PairQueue& pair_queue, int desired_owner_id) :
-		acceptor_ (service, tcp::endpoint(tcp::v4(), 0)),
-		strand_ (service),
-		heartbeat_timer_ (service, boost::posix_time::seconds(1)),
-		io_service_ (service),
-		owner_id_(-1),
-		pair_space_ (pair_space),
-		pair_queue_ (pair_queue),
-		master_ip_ (master_hub_ip),
-		master_port_ (master_hub_port)
-{
-	port_ = acceptor_.local_endpoint().port();
-	if(!my_client_session_)
-		my_client_session_ = boost::shared_ptr <ServerSession> (new ServerSession(service, pair_space_, pair_queue_, owner_id_, this));
-
-	SRNP_PRINT_INFO << "Here we are folks. St. Alfonso's pancake breakfast!";
-	// Register a callback for accepting new connections.
-	acceptor_.async_accept (my_client_session_->socket(), boost::bind(&Server::handleAcceptedMyClientConnection, this, my_client_session_, desired_owner_id, boost::asio::placeholders::error));
-
-	// Register a callback for the timer. Called ever second.
-	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
-
-	// Start the spin thread.
-	startSpinThreads();
+ServerSessionPtr Server::myClientSession() const {
+  std::lock_guard lock(client_session_mutex_);
+  return my_client_session_;
 }
 
-void Server::startSpinThreads()
-{
-	for(int i = 0; i < 4; i++)
-		spin_thread_[i] = boost::thread (boost::bind(&boost::asio::io_service::run, &io_service_));
-	SRNP_PRINT_DEBUG << "Four separate listening threads have started.";
+void Server::printPairSpace() {
+  std::lock_guard lock(pair_space_.mutex);
+  pair_space_.printPairSpace();
 }
 
-void Server::handleAcceptedMyClientConnection (boost::shared_ptr <ServerSession>& client_session, int desired_owner_id, const boost::system::error_code& e)
-{
-	if(!e)
-	{
-		//SRNP_PRINT_DEBUG << "[SERVER]: We connected to our own client. On " << client_session->socket().remote_endpoint().port();
-		my_master_link_ = boost::shared_ptr <MasterLink> (new MasterLink(io_service_, master_ip_, master_port_, my_client_session_, this, desired_owner_id));
-		my_master_link_->sendMMToOurClientAndWaitForUCMsg();
-		client_session->startReading();
-		ServerSession::session_counter++;
-		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_, this);
-		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
-	}
-	else
-	{
-		ServerSession::session_counter--;
-		client_session.reset();
-		SRNP_PRINT_FATAL << "We couldn't connect to our own client. Sucks!";
-	}
+void Server::stop() {
+  if (stopped_.exchange(true)) return;
+
+  if (master_link_) master_link_->close();
+
+  // Hand the acceptor's close to the strand that runs the accept loop.
+  asio::post(acceptor_strand_, [this] {
+    boost::system::error_code ignored;
+    acceptor_.close(ignored);
+  });
+
+  io_.stop();
+  // jthread joins on destruction, but clearing here makes shutdown ordering
+  // obvious and lets stop() be called before the destructor runs.
+  workers_.clear();
 }
 
-void Server::handleAcceptedConnection (ServerSession* new_session, const boost::system::error_code& e)
-{
-	if(!e)
-	{
-		//SRNP_PRINT_DEBUG << "[SERVER]: We, connect to " << new_session->socket().remote_endpoint().address().to_string()
-				//<< ":" << new_session->socket().remote_endpoint().port();
-		new_session->startReading();
-		ServerSession::session_counter++;
-		ServerSession* new_session_ = new ServerSession(io_service_, pair_space_, pair_queue_, owner_id_, this);
-		acceptor_.async_accept (new_session_->socket(), boost::bind(&Server::handleAcceptedConnection, this, new_session_, boost::asio::placeholders::error));
-	}
-	else
-	{
-		ServerSession::session_counter--;
-		delete new_session;
-	}
-}
+Server::~Server() { stop(); }
 
-void Server::onHeartbeat()
-{
-	// TODO: SEE IF EVERYTHING IS OK BEFORE DOING THIS!
-	elapsed_time_ += boost::posix_time::seconds(1);
-	heartbeat_timer_.expires_at(heartbeat_timer_.expires_at() + boost::posix_time::seconds(1));
-	heartbeat_timer_.async_wait (boost::bind(&Server::onHeartbeat, this));
-	//SRNP_PRINT_TRACE << "*********************************************************";
-	//SRNP_PRINT_TRACE << "[SERVER] Elapsed time: " << elapsed_time_ << std::endl;
-	//SRNP_PRINT_DEBUG << "[SERVER] Acceptor State: " << acceptor_.is_open() ? "Open" : "Closed";
-	//SRNP_PRINT_DEBUG << "[SERVER] No. of Active Sessions: " << ServerSession::session_counter;
-	//SRNP_PRINT_TRACE << "*********************************************************";
-}
-
-void Server::waitForEver()
-{
-	//SRNP_PRINT_DEBUG << "Starting to wait forever...";
-	for(int i = 0; i < 4; i++)
-	{
-		spin_thread_[i].join();
-	}
-}
-
-Server::~Server()
-{
-	//SRNP_PRINT_DEBUG << "SERVER CLOSES CLEANLY!";
-}
-
-} /* namespace srnp */
+}  // namespace srnp

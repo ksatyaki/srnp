@@ -1,76 +1,31 @@
-#include <iostream>
-#include <boost/asio.hpp>
+// Subscribes to another component's pair and prints every update.
 
 #include <srnp/srnp_kernel.h>
+#include <srnp/srnp_print.h>
 
-class CallbackForTuple
-{
-public:
-	void callback_function(const srnp::Pair::ConstPtr& p)
-	{
-		SRNP_PRINT_DEBUG << "*****************************************";
-		SRNP_PRINT_DEBUG << "In callback!";
-		SRNP_PRINT_DEBUG << "Tuple: " << *p;
-		SRNP_PRINT_DEBUG << "*****************************************";
-	}
-	void back_function(const srnp::Pair::ConstPtr& p)
-	{
-		SRNP_PRINT_DEBUG << "*****************************************";
-		SRNP_PRINT_DEBUG << "In callback!";
-		SRNP_PRINT_DEBUG << "Tuple: " << *p;
-		SRNP_PRINT_DEBUG << "*****************************************";
-	}
-};
+#include <chrono>
+#include <cstdio>
+#include <thread>
 
-int main(int argn, char* args[], char* env[])
-{
-	srnp::srnp_print_setup("debug");
+int main(int argc, char* argv[]) {
+  srnp::srnp_print_setup("debug");
 
-	srnp::initialize(argn, args, env);
-	sleep(1);
+  try {
+    srnp::initialize(argc, argv);
+  } catch (const srnp::InitError& e) {
+    std::fprintf(stderr, "could not start: %s\n", e.what());
+    return 1;
+  }
 
-	printf("\nGo!\n");
+  // Subscribes to this key on every component, now and as they join.
+  srnp::registerSubscription("value");
+  srnp::registerCallback(srnp::kAnyOwner, "*", [](const srnp::Pair::ConstPtr& pair) {
+    SRNP_INFO("update: {}", *pair);
+  });
 
-	sleep(1);
+  std::this_thread::sleep_for(std::chrono::seconds(12));
 
-	CallbackForTuple callback_object;
-	int value = 8;
-
-	srnp::SubscriptionHandle sh1 = srnp::registerSubscription (1, "simple");
-	srnp::SubscriptionHandle sh2 = srnp::registerSubscription (2, "simple");
-	
-	srnp::CallbackHandle cb1 = srnp::registerCallback(1, "simple", boost::bind(&CallbackForTuple::callback_function, &callback_object, _1));
-	srnp::CallbackHandle cb2 = srnp::registerCallback(2, "simple", boost::bind(&CallbackForTuple::back_function, &callback_object, _1));
-
-	int i = 20;
-	
-	while(i--) {
-		SRNP_PRINT_DEBUG << i;
-		usleep(500000);
-	}
-
-	SRNP_PRINT_DEBUG << "One is unregistered.";
-	srnp::cancelCallback(cb1);
-
-	i = 10;
-	while(i--) {
-		SRNP_PRINT_DEBUG << i;
-		SRNP_PRINT_DEBUG << *(srnp::getPair(1, "simple"));
-		SRNP_PRINT_DEBUG << *(srnp::getPair(2, "simple"));
-		usleep(500000);
-	}
-
-	SRNP_PRINT_DEBUG << "Two is unregistered.";
-	srnp::cancelCallback(cb2);
-
-	i = 10;
-	while(i--) {
-		SRNP_PRINT_DEBUG << i;
-		SRNP_PRINT_DEBUG << *(srnp::getPair(1, "simple"));
-		SRNP_PRINT_DEBUG << *(srnp::getPair(2, "simple"));
-		usleep(500000);
-	}
-	
-	srnp::shutdown();
-	return 0;
+  srnp::printPairSpace();
+  srnp::shutdown();
+  return 0;
 }

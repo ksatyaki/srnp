@@ -1,7 +1,7 @@
 /*
-  PairQueue.h - Used to communicate a pair without putting it on the
+  PairQueue.h - Hands a pair to the local server without putting it on the
   socket.
-  
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -22,46 +22,50 @@
 #define PAIRQUEUE_H_
 
 #include <srnp/Pair.h>
-#include <srnp/msgs/CommMessages.h>
+
+#include <mutex>
+#include <optional>
 #include <queue>
-#include <boost/thread/mutex.hpp>
 
-namespace srnp
-{
-struct PairQueue
-{
-	/**
-	 * Queue used to send pairs from Client to Server.
-	 */
-	std::queue <Pair> pair_queue;
+namespace srnp {
 
-	/**
-	 * ROS Users beware. This is a name chosen for convenience. It is not, in any way, related to ROS callback queues.
-	 */
-	std::queue < Pair::CallbackFunction > callback_queue;
+/**
+ * A queue paired with an empty notification frame. The sender pushes and
+ * sends under the same lock, so the reader always pops the pair that
+ * belongs to the frame it just received.
+ */
+class PairHandoff {
+ public:
+  /// Hold this across push and the send that announces it. Without that,
+  /// another thread could push and send in between, and the reader would
+  /// pop the wrong pair.
+  [[nodiscard]] std::unique_lock<std::mutex> lock() { return std::unique_lock(mutex_); }
 
-	/**
-	 * A queue to maintain the PairUpdate Messages.
-	 */
-	std::queue <Pair> pair_update_queue;
+  /// Call with lock() held.
+  void push(Pair pair) { queue_.push(std::move(pair)); }
 
-	/**
-	 * A mutex to lock the pair queue.
-	 */
-	boost::mutex pair_queue_mutex;
+  /// Empty only if a frame arrived without its pair, which means a bug.
+  std::optional<Pair> pop() {
+    std::lock_guard guard(mutex_);
+    if (queue_.empty()) return std::nullopt;
+    Pair pair = std::move(queue_.front());
+    queue_.pop();
+    return pair;
+  }
 
-	/**
-	 * A mutex to lock the pair queue.
-	 */
-	boost::mutex pair_update_queue_mutex;
-
-	/**
-	 * A mutex to lock the callback queue.
-	 */
-	boost::mutex callback_queue_mutex;
+ private:
+  std::mutex mutex_;
+  std::queue<Pair> queue_;
 };
-}
 
+struct PairQueue {
+  /// Pairs going from our client to our own server.
+  PairHandoff outgoing;
 
+  /// Pairs our server wants the client to forward to subscribers.
+  PairHandoff updates;
+};
+
+}  // namespace srnp
 
 #endif /* PAIRQUEUE_H_ */

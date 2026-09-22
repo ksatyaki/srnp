@@ -1,6 +1,6 @@
 /*
-  client.cpp - implementation of classes and functions in client.h
-  
+  client.cpp - Implementation of classes and functions in client.h
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -17,834 +17,528 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 #include <srnp/client.h>
+#include <srnp/msgs/codec.h>
+#include <srnp/srnp_print.h>
+
+#include <boost/asio/as_tuple.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/connect.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/strand.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <algorithm>
+#include <charconv>
+#include <format>
+#include <ranges>
 
 namespace srnp {
+namespace {
 
-void ClientSession::handleConnection(Client* client, const boost::system::error_code& err)
-{
-	if(!err)
-	{
-		reconnect_timer_.cancel();
+/// The value a meta-pair holds before it points anywhere.
+constexpr std::string_view kNullMeta = "(META -1 NULL)";
 
-		if(is_this_our_server_session_)
-		{
-			SRNP_PRINT_DEBUG << "Connected to Our Own Server on: " << this->socket_->remote_endpoint().port();
-			SRNP_PRINT_TRACE << "We are on: " << this->socket_->local_endpoint().port();
-			boost::asio::async_read(*socket_, boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCandPairMsgs, this, client, boost::asio::placeholders::error));
-		}
-		else
-		{
-			SRNP_PRINT_DEBUG << "Connected to a Server on: " << this->socket_->remote_endpoint().port();
-			if(client == NULL)
-			{
-				SRNP_PRINT_ERROR << "NOLLE!";
-			}
-			sendSubscriptionMsgs(client);
-		}
+/// How many frames to hold for a component that hasn't connected yet.
+constexpr std::size_t kMaxPendingFrames = 1024;
 
-	}
-	else
-	{
-		SRNP_PRINT_WARNING << "Not connected to host. Will try again in 10 seconds.";
-		reconnect_timer_.expires_from_now(boost::posix_time::seconds(RECONNECT_TIMEOUT));
-		reconnect_timer_.async_wait(boost::bind(&ClientSession::reconnectTimerCallback, this, client));
-	}
-
+/// Reads a whole string as an int. Returns nullopt for anything else.
+std::optional<int> parseInt(std::string_view text) {
+  int value = 0;
+  const auto* end = text.data() + text.size();
+  const auto [stop, error] = std::from_chars(text.data(), end, value);
+  if (error != std::errc{} || stop != end) return std::nullopt;
+  return value;
 }
 
-ClientSession::~ClientSession() {
-	boost::system::error_code ec;
-	this->socket_->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-	this->socket_.reset();
-	//SRNP_PRINT_ERROR << "Closed a socket with error: " << ec.message();
+/// Pulls <owner, key> out of a meta-pair value, or nullopt if it isn't one.
+std::optional<PairKey> parseMetaValue(std::string_view value) {
+  const auto parts = extractStrings(value);
+  if (parts.size() != 3 || parts[0] != "META") return std::nullopt;
+
+  const auto owner = parseInt(parts[1]);
+  if (!owner) return std::nullopt;
+  return PairKey{*owner, parts[2]};
 }
 
-void ClientSession::sendSubscriptionMsgs(Client* client)
-{
-	//SRNP_PRINT_DEBUG << "SEND SUBSCRIPTION MSGS!" ;
-	for(std::vector<std::string>::iterator iter = client->subscribed_tuples_.begin(); iter!= client->subscribed_tuples_.end(); iter++)
-	{
-		//SRNP_PRINT_DEBUG << "SENDING SUBSCRIPTION MSG: ";
-		SubscriptionORCallback subs_msg;
+}  // namespace
 
-		subs_msg.key = *iter;
-		subs_msg.registering = true;
-		subs_msg.owner_id = this->endpoint_owner_id_;
-		subs_msg.subscriber = client->owner_id_;
-
-		std::ostringstream data_stream;
-		boost::archive::text_oarchive data_archive (data_stream);
-		data_archive << subs_msg;
-		std::string out_data_ = data_stream.str();
-		// END
-
-		// Setup the message header.
-		srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
-		// Serialize the data first so we know how large it is.
-		std::ostringstream header_archive_stream;
-		boost::archive::text_oarchive header_archive(header_archive_stream);
-		header_archive << header;
-		std::string out_header_ = header_archive_stream.str();
-		// END
-
-		// Prepare header length
-		std::ostringstream header_size_stream;
-		header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-		if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-		{
-			SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
-		}
-		std::string  out_header_size_ = header_size_stream.str();
-
-		boost::mutex::scoped_lock write_lock(server_write_mutex);
-		sendDataToServer(out_header_size_, out_header_, out_data_);
-	}
-
-	std::map <int, std::vector<std::string> >::iterator it = client->owner_id_to_subscribed_pairs_.find(this->endpoint_owner_id_);
-
-	if(it == client->owner_id_to_subscribed_pairs_.end()) {
-		//SRNP_PRINT_DEBUG << "We aren't subscribed to any pairs from: " << this->endpoint_owner_id_;
-	}
-	else {
-		if(it->second.empty()) {
-			//SRNP_PRINT_DEBUG << "We used to be... but now we aren't subscribed to any pairs from: ." << this->endpoint_owner_id_;
-		}
-		else {
-			for(int i = 0; i < it->second.size(); i++) {
-				SubscriptionORCallback subs_msg;
-
-				SRNP_PRINT_DEBUG << "To new guy: " << it->second[i];
-				subs_msg.key = it->second[i];
-				subs_msg.registering = true;
-				subs_msg.owner_id = it->first;
-				subs_msg.subscriber = client->owner_id_;
-
-				std::ostringstream data_stream;
-				boost::archive::text_oarchive data_archive (data_stream);
-				data_archive << subs_msg;
-				std::string out_data_ = data_stream.str();
-				// END
-
-				// Setup the message header.
-				srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
-				// Serialize the data first so we know how large it is.
-				std::ostringstream header_archive_stream;
-				boost::archive::text_oarchive header_archive(header_archive_stream);
-				header_archive << header;
-				std::string out_header_ = header_archive_stream.str();
-				// END
-
-				// Prepare header length
-				std::ostringstream header_size_stream;
-				header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-				if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-				{
-					SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
-				}
-				std::string  out_header_size_ = header_size_stream.str();
-
-				boost::mutex::scoped_lock write_lock(server_write_mutex);
-				sendDataToServer(out_header_size_, out_header_, out_data_);
-			}
-		}
-	}
+std::vector<std::string> extractStrings(std::string_view text) {
+  std::vector<std::string> words;
+  for (const auto part : std::views::split(text, ' ')) {
+    std::string_view word(part.begin(), part.end());
+    // Strip the parentheses that wrap a meta value.
+    while (!word.empty() && (word.front() == '(' || word.front() == ')')) word.remove_prefix(1);
+    while (!word.empty() && (word.back() == '(' || word.back() == ')')) word.remove_suffix(1);
+    if (!word.empty()) words.emplace_back(word);
+  }
+  return words;
 }
 
-void ClientSession::handleMMandUCandPairMsgs(Client* client, const boost::system::error_code& error)
-{
-	if(!error)
-	{
-		uint64_t header_size;
-		// Deserialize the length.
-		std::istringstream size_stream(std::string(in_size_.elems, sizeof(uint64_t)));
-		size_stream >> std::hex >> header_size;
-		//
-		in_header_.resize (header_size);
+/** CLIENT SESSION **/
 
-		boost::system::error_code sync_receive_error;
-		boost::asio::read(*socket_, boost::asio::buffer(in_header_), sync_receive_error);
-		//SRNP_PRINT_DEBUG << "[CLIENT]: Sync receive of Message header: " << sync_receive_error.message();
+ClientSession::ClientSession(asio::io_context& io, std::string host, std::string port,
+                             Client& client, bool is_our_own_server, int endpoint_owner_id)
+    : io_(io),
+      strand_(asio::make_strand(io)),
+      host_(std::move(host)),
+      port_(std::move(port)),
+      client_(client),
+      is_our_own_server_(is_our_own_server),
+      endpoint_owner_id_(endpoint_owner_id) {}
 
-		std::istringstream header_in_stream (std::string(in_header_.data(), in_header_.size()));
-		boost::archive::text_iarchive header_archive(header_in_stream);
-		MessageHeader header;
-		header_archive >> header;
+asio::awaitable<bool> ClientSession::connect() {
+  tcp::resolver resolver(io_);
+  tcp::socket socket(io_);
 
-		in_data_.resize(header.length);
+  auto [resolve_error, endpoints] =
+      co_await resolver.async_resolve(host_, port_, asio::as_tuple(asio::use_awaitable));
+  if (resolve_error) {
+    SRNP_DEBUG("cannot resolve {}:{}: {}", host_, port_, resolve_error.message());
+    co_return false;
+  }
 
-		//std::string output = header.type == MessageHeader::PAIR_UPDATE ? "PU" : "MM or UC";
-		//SRNP_PRINT_DEBUG << "SRNP SERVER SAYS: %s" << output;
+  auto [connect_error, _] =
+      co_await asio::async_connect(socket, endpoints, asio::as_tuple(asio::use_awaitable));
+  if (connect_error) {
+    SRNP_DEBUG("cannot reach {}:{}: {}", host_, port_, connect_error.message());
+    co_return false;
+  }
 
-		if(header.length != 0)
-		{
-			boost::asio::read(*socket_, boost::asio::buffer(in_data_), sync_receive_error);
-			//SRNP_PRINT_DEBUG << "[CLIENT]: Sync receive of Message: " << sync_receive_error.message();
-		}
+  auto channel = std::make_shared<FrameChannel>(std::move(socket), strand_);
 
-		if(header.type == MessageHeader::MM)
-		{
-			std::istringstream data_in_stream (std::string(in_data_.data(), in_data_.size()));
-			boost::archive::text_iarchive data_archive (data_in_stream);
+  std::deque<std::vector<std::byte>> waiting;
+  {
+    std::lock_guard lock(channel_mutex_);
+    // close() may have run while we were connecting. Adopting the channel
+    // now would leave it open with nobody to shut it down.
+    if (closing_.load(std::memory_order_relaxed)) {
+      channel->close();
+      co_return false;
+    }
+    channel_ = channel;
+    waiting.swap(pending_);
+  }
 
-			MasterMessage mm;
-			data_archive >> mm;
-			this->endpoint_owner_id_ = mm.owner;
-			client->owner_id_ = mm.owner;
-
-			client->ready_ = true;
-			
-			for(std::vector <ComponentInfo>::iterator iter = mm.all_components.begin(); iter != mm.all_components.end(); iter++)
-			{
-				//SRNP_PRINT_DEBUG << "[CLIENT]: Adding these informations...";
-				//SRNP_PRINT_DEBUG << "[CLIENT]: PORT: " << iter->port;
-				//SRNP_PRINT_DEBUG << "[MM_MESSAGE FROM CLIENT]: OWNER: " << iter->owner;
-				//SRNP_PRINT_DEBUG << "[CLIENT]: IP: %s" << iter->ip;
-
-				// TODO SHARED RESOURCE??!?!?!
-				client->sessions_map_[iter->owner] = new ClientSession(client->service_, iter->ip, iter->port, false, client, iter->owner);
-			}
-
-			//SRNP_PRINT_DEBUG << "[CLIENT]: Master message received!";
-			//SRNP_PRINT_INFO << "[CLIENT]: Owner ID: " << mm.owner;
-
-		}
-		else if(header.type == MessageHeader::UC)
-		{
-			std::istringstream data_in_stream (std::string(in_data_.data(), in_data_.size()));
-			boost::archive::text_iarchive data_archive (data_in_stream);
-
-			UpdateComponents uc;
-			data_archive >> uc;
-
-			if(uc.operation == UpdateComponents::ADD)
-			{
-				SRNP_PRINT_DEBUG << "Adding session... ( " << uc.component.ip << uc.component.port << uc.component.owner << " )";
-				client->sessions_map_[uc.component.owner] = new ClientSession(client->service_, uc.component.ip, uc.component.port, false, client, uc.component.owner);
-			}
-
-			else if(uc.operation == UpdateComponents::REMOVE)
-			{
-				//SRNP_PRINT_DEBUG << "Deleting session... (" << uc.component.ip << uc.component.port << uc.component.owner << " )";
-				ClientSession* session_to_delete = client->sessions_map_[uc.component.owner];
-				client->sessions_map_.erase(uc.component.owner);
-				delete session_to_delete;
-			}
-		}
-		else if (header.type == MessageHeader::PAIR_UPDATE || header.type == MessageHeader::PAIR_UPDATE_2)
-		{
-			client->pair_queue_.pair_update_queue_mutex.lock();
-			Pair P = client->pair_queue_.pair_update_queue.front();
-			client->pair_queue_.pair_update_queue.pop();
-			client->pair_queue_.pair_update_queue_mutex.unlock();
-
-			int only_one = -1;
-			if(header.type == MessageHeader::PAIR_UPDATE_2)
-			{
-				//SRNP_PRINT_DEBUG << "PAIR_UPDATE_2 MSG...";
-				only_one = header.subscriber__;
-			}
-			//else
-			//	SRNP_PRINT_DEBUG << "Normal PairUpdate Msg...";
-			
-			setPairUpdate(P, client, only_one);
-		}
-		else
-		{
-			SRNP_PRINT_FATAL << "We received a message that was neither UC nor MM nor PairUpdate. Weird!";
-		}
-
-		boost::asio::async_read(*socket_, boost::asio::buffer(in_size_), boost::bind(&ClientSession::handleMMandUCandPairMsgs, this, client, boost::asio::placeholders::error));
-	}
-	else
-	{
-		SRNP_PRINT_FATAL << "Lost connection with our own server. Don't know what to do! Error: " << error.message();
-	}
-
+  // Anything queued while we were connecting goes out first, in order.
+  for (auto& frame : waiting) channel->send(std::move(frame));
+  co_return true;
 }
 
-void ClientSession::reconnectTimerCallback(Client* client)
-{
-	SRNP_PRINT_DEBUG << "Reconnecting to host...";
-	boost::asio::async_connect(*socket_, endpoint_iterator_, boost::bind(&ClientSession::handleConnection, this, client, boost::asio::placeholders::error));
+asio::awaitable<void> ClientSession::run() {
+  auto self = shared_from_this();
+  asio::steady_timer retry(io_);
+
+  while (!closing_.load(std::memory_order_relaxed)) {
+    if (!co_await connect()) {
+      // Our own server is in this process, so failing to reach it is fatal
+      // rather than something to retry.
+      if (is_our_own_server_) {
+        SRNP_FATAL("cannot connect to our own server on {}:{}", host_, port_);
+        co_return;
+      }
+      retry.expires_after(kReconnectDelay);
+      co_await retry.async_wait(asio::as_tuple(asio::use_awaitable));
+      continue;
+    }
+
+    SRNP_DEBUG("connected to {}:{}", host_, port_);
+
+    if (!is_our_own_server_) {
+      // A component we only push to. Tell it what we want, then idle.
+      sendSubscriptionsFor(endpoint_owner_id_);
+      co_return;
+    }
+
+    // Tell our server which connection we are; other components' clients
+    // connect to the same acceptor.
+    send(wire::frame(wire::MessageType::AttachClient));
+
+    co_await readLoop();
+    co_return;
+  }
 }
 
-ClientSession::ClientSession(boost::asio::io_service& service, const std::string& host, const std::string& port, bool is_this_our_server_session, Client* client, const int& endpoint_owner_id) :
-		reconnect_timer_ (service, boost::posix_time::seconds(RECONNECT_TIMEOUT)),
-		resolver_(service),
-		is_this_our_server_session_ (is_this_our_server_session),
-		client_(client),
-		endpoint_owner_id_(endpoint_owner_id)
-{
-	socket_ = boost::shared_ptr<tcp::socket>(new tcp::socket (service));
-	tcp::resolver::query query(host, port);
-	endpoint_iterator_ = resolver_.resolve(query);
-	boost::asio::async_connect(*socket_, endpoint_iterator_, boost::bind(&ClientSession::handleConnection, this, client_, boost::asio::placeholders::error));
+asio::awaitable<void> ClientSession::readLoop() {
+  FrameChannelPtr channel;
+  {
+    std::lock_guard lock(channel_mutex_);
+    channel = channel_;
+  }
+  if (!channel) co_return;  // Closed before we got going.
+
+  try {
+    for (;;) {
+      const auto frame = co_await channel->read();
+      switch (frame.header.type) {
+        case wire::MessageType::MasterMessage: handleMasterMessage(frame); break;
+        case wire::MessageType::UpdateComponents: handleUpdateComponents(frame); break;
+        case wire::MessageType::PairUpdate:
+        case wire::MessageType::PairUpdateOne: handlePairUpdate(frame); break;
+        default:
+          throw wire::DecodeError("a client cannot handle this message type");
+      }
+    }
+  } catch (const std::exception& e) {
+    if (!closing_.load(std::memory_order_relaxed))
+      SRNP_ERROR("lost the connection to our own server: {}", e.what());
+  }
 }
 
-bool ClientSession::sendDataToServer(const std::string& out_header_size, const std::string& out_header, const std::string& out_data)
-{
-
-	boost::system::error_code error;
-
-	boost::asio::write(*socket_, boost::asio::buffer(out_header_size), error);
-	//SRNP_PRINT_TRACE << "[sendPair]: Done writing header size. Error: " << error.message();
-
-	boost::asio::write(*socket_, boost::asio::buffer(out_header), error);
-	//SRNP_PRINT_TRACE << "[sendPair]: Done writing header. Error: " << error.message();
-
-	if(out_data.size() != 0)
-	{
-		boost::asio::write(*socket_, boost::asio::buffer(out_data), error);
-		//SRNP_PRINT_TRACE << "[sendPair]: Done writing data. Error: " << error.message();
-	}
-
-	if(!error)
-		return true;
-	else return false;
+void ClientSession::handleMasterMessage(const Frame& frame) {
+  const auto message = decodePayload<MasterMessage>(frame.bytes());
+  endpoint_owner_id_ = message.owner;
+  client_.onMasterMessage(message.owner, message.all_components);
 }
 
-/******************************************************/
-/*********************** CLIENT ***********************/
-/******************************************************/
+void ClientSession::handleUpdateComponents(const Frame& frame) {
+  const auto message = decodePayload<UpdateComponents>(frame.bytes());
 
-Client::Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairSpace& pair_space, PairQueue& pair_queue) :
-		service_ (service),
-		owner_id_ (-10),
-		pair_space_(pair_space),
-		pair_queue_(pair_queue),
-		subscription_handle_new_ (0)
-{
-	my_server_session_ = boost::shared_ptr <ClientSession> (new ClientSession (service, our_server_ip, our_server_port, true, this, owner_id_));
-	ready_ = false;
+  if (message.operation == UpdateComponents::Operation::Add) {
+    SRNP_DEBUG("component {} joined at {}:{}", message.component.owner, message.component.ip,
+               message.component.port);
+    client_.addSession(message.component);
+  } else {
+    SRNP_DEBUG("component {} left", message.component.owner);
+    client_.removeSession(message.component.owner);
+  }
 }
 
-bool Client::setPair(const std::string& key, const std::string& value, const Pair::PairType& type)
-{
-	// Serialize the tuple first.
-	// So we set-up the header according to this.
-	srnp::Pair my_pair (owner_id_, key, value, type);
+void ClientSession::handlePairUpdate(const Frame& frame) {
+  auto pair = client_.pair_queue_.updates.pop();
+  if (!pair) {
+    SRNP_ERROR("got a pair update notification with nothing queued behind it");
+    return;
+  }
 
-	std::string out_data_ = "";
-	// END
-
-	// Setup the message header.
-	srnp::MessageHeader header (0, srnp::MessageHeader::PAIR_NOCOPY);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-	{
-
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-
-	// CRITICAL SECTION!!!
-	// Be sure that once we have pushed into the queue, we should also send the data.
-	// Because if we don't, another thread could push to queue and send after we have
-	// just pushed. And on the receiving end, our member will be popped.
-	boost::mutex::scoped_lock scoped_mutex_lock(pair_queue_.pair_queue_mutex);
-	pair_queue_.pair_queue.push(my_pair);
-
-	//SRNP_PRINT_DEBUG << "Writing Data To Server.";
-	boost::mutex::scoped_lock wirte_lock(my_server_session_->server_write_mutex);
-	return my_server_session_->sendDataToServer(out_header_size_, out_header_, out_data_);
-
+  const int only = frame.header.type == wire::MessageType::PairUpdateOne
+                       ? frame.header.subscriber
+                       : kAnyOwner;
+  forwardPairUpdate(*pair, only);
 }
 
-bool Client::setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type) {
+void ClientSession::forwardPairUpdate(const Pair& pair, int only_subscriber) {
+  const auto payload = wire::frameOf(wire::MessageType::PairUpdate, pair);
 
-	if(sessions_map_.find(owner) == sessions_map_.end()) {
-		return false;
-	}
-	
-    // Serialize the tuple first.
-	// So we set-up the header according to this.
-	srnp::Pair my_pair (owner, key, value, type);
+  if (only_subscriber != kAnyOwner) {
+    if (auto session = client_.sessionFor(only_subscriber))
+      session->send(payload);
+    else
+      SRNP_WARN("subscriber {} is not connected", only_subscriber);
+    return;
+  }
 
-	std::ostringstream data_archive_stream;
-	boost::archive::text_oarchive data_archive(data_archive_stream);
-	data_archive << my_pair;
-	std::string out_data_ = data_archive_stream.str();
-	// END
-
-	// Setup the message header.
-	srnp::MessageHeader header (out_data_.size(), MessageHeader::PAIR);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-	{
-
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-	boost::mutex::scoped_lock wirte_lock(sessions_map_[owner]->server_write_mutex);
-	return sessions_map_[owner]->sendDataToServer(out_header_size_, out_header_, out_data_);
+  for (const int subscriber : pair.subscribers_) {
+    if (auto session = client_.sessionFor(subscriber))
+      session->send(payload);
+    else
+      SRNP_WARN("subscriber {} is not connected", subscriber);
+  }
 }
 
-std::vector<std::string> extractStrings(const char p[])
-{
-	char *copyOfString = new char[strlen(p) + 1];
-	strcpy(copyOfString, p);
-
-	std::vector<std::string> _values;
-
-	char *pch;
-	int cmd_args = 0;
-
-	pch = strtok (copyOfString," )(");
-	while (pch != NULL)
-	{
-		cmd_args++;
-		_values.push_back(pch);
-		pch = strtok (NULL, " )(");
-	}
-
-	delete copyOfString;
-	return _values;
+void ClientSession::sendSubscriptionsFor(int owner) {
+  for (const auto& record : client_.subscriptionsFor(owner)) {
+    Subscription message;
+    message.key = record.key;
+    // A wildcard subscription is addressed to whoever we are talking to.
+    message.owner_id = record.owner == kAnyOwner ? owner : record.owner;
+    message.subscriber = client_.ownerId();
+    message.registering = true;
+    send(wire::frameOf(wire::MessageType::Subscription, message));
+  }
 }
 
-Pair::ConstPtr Client::getPairIndirectly(const int& metaowner, const std::string& metakey) {
-	Pair::ConstPtr metapair = getPair(metaowner, metakey);
-	if(!metapair) {
-		SRNP_PRINT_WARNING << "(In getPairIndirectly/getStringTupleIndirectly): Nullptr when trying to get a meta-pair. Have you subscribed to this meta-pair?";
-		return Pair::ConstPtr();
-	}
+void ClientSession::send(std::vector<std::byte> frame) {
+  if (closing_.load(std::memory_order_relaxed)) return;
 
-	// Obvious else
-	std::vector <std::string> parts = extractStrings(metapair->getValue().c_str());
-	if(parts.size() == 3) {
-		if(parts[0].compare("META") == 0) {
-			return Client::getPair(atoi(parts[1].c_str()), parts[2]);
-		}
-		else {
-			SRNP_PRINT_WARNING << "getPairIndirectly()/getTupleIndirectly() called on a non-meta pair.";
-			return Pair::ConstPtr();
-		}
-	}
-	else {
-		SRNP_PRINT_WARNING << "getPairIndirectly()/getTupleIndirectly() called on a non-meta pair.";
-		return Pair::ConstPtr();
-	}
+  // One critical section throughout: checking the channel and queueing in
+  // two steps would let a connection complete in between and strand the
+  // frame in a queue nobody flushes again.
+  std::lock_guard lock(channel_mutex_);
+
+  if (channel_) {
+    channel_->send(std::move(frame));
+    return;
+  }
+
+  // Not connected yet. Hold onto it, but don't grow without limit if the
+  // component never comes up.
+  if (pending_.size() >= kMaxPendingFrames) {
+    SRNP_WARN("{}:{} is still unreachable; dropping the oldest queued frame", host_, port_);
+    pending_.pop_front();
+  }
+  pending_.push_back(std::move(frame));
 }
 
-bool Client::setPairIndirectly(const int& metaowner, const std::string& metakey, const std::string& value) {
-	Pair::ConstPtr metapair = getPair(metaowner, metakey);
-	if(!metapair) {
-		SRNP_PRINT_WARNING << "(In setPairIndirectly/setStringTupleIndirectly): Nullptr when trying to get a meta-pair. Have you subscribed to this meta-pair?";
-		return false;
-	}
+void ClientSession::close() {
+  closing_.store(true, std::memory_order_relaxed);
 
-	// Obvious else
-	std::vector <std::string> parts = extractStrings(metapair->getValue().c_str());
-	if(parts.size() == 3) {
-		if(parts[0].compare("META") == 0) {
-			if(atoi(parts[1].c_str()) == this->owner_id_) {
-				return Client::setPair(parts[2], value);
-			}
-			else {
-				return Client::setRemotePair(atoi(parts[1].c_str()), parts[2], value);
-			}
-		}
-		else {
-			SRNP_PRINT_WARNING << "setPairIndirectly()/setTupleIndirectly() called on a non-meta pair.";
-			return false;
-		}
-	}
-	else {
-		SRNP_PRINT_WARNING << "setPairIndirectly()/setTupleIndirectly() called on a non-meta pair.";
-		return false;
-	}
+  FrameChannelPtr channel;
+  {
+    std::lock_guard lock(channel_mutex_);
+    channel = std::move(channel_);
+    pending_.clear();
+  }
+  if (channel) channel->close();
 }
 
-bool Client::setMetaPair(const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key) {
-	boost::shared_array <char> buffer = boost::shared_array<char>(new char[100]);
-	sprintf(buffer.get(), "(META %d ", owner);
-	std::string value_ = std::string(buffer.get()) + key + std::string(")");
-	if(meta_owner == this->owner_id_) {
-		return setPair(meta_key, value_, Pair::STRING);
-	}
-	else {
-		return setRemotePair(meta_owner, meta_key, value_, Pair::STRING);
-	}
+/** CLIENT **/
+
+Client::Client(asio::io_context& io, std::string our_server_ip, std::string our_server_port,
+               PairSpace& pair_space, PairQueue& pair_queue)
+    : io_(io), pair_space_(pair_space), pair_queue_(pair_queue) {
+  // ready_ is already false, so the session below can flip it the moment
+  // the master message arrives without the constructor racing it back.
+  my_server_session_ = std::make_shared<ClientSession>(io_, std::move(our_server_ip),
+                                                       std::move(our_server_port), *this, true,
+                                                       kAnyOwner);
+  asio::co_spawn(my_server_session_->strand(), my_server_session_->run(), asio::detached);
 }
 
-bool Client::initMetaPair(const int& meta_owner, const std::string& meta_key) {
-	if(meta_owner == this->owner_id_) {
-		return setPair(meta_key, "(META -1 NULL)", Pair::META);
-	}
-	else {
-		return setRemotePair(meta_owner, meta_key, "(META -1 NULL)", Pair::META);
-	}
+Client::~Client() { close(); }
+
+void Client::close() {
+  std::vector<ClientSessionPtr> sessions;
+  {
+    std::lock_guard lock(state_mutex_);
+    for (auto& [owner, session] : sessions_) sessions.push_back(session);
+    sessions_.clear();
+  }
+
+  for (auto& session : sessions) session->close();
+  if (my_server_session_) my_server_session_->close();
 }
 
-Pair::ConstPtr Client::getPair(const int& owner, const std::string& key) {
-	boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
-	std::vector <Pair>::iterator iter = pair_space_.getPairIteratorWithOwnerAndKey(owner, key);
-	if(!pair_space_.isEnd(iter)) {
-		return Pair::ConstPtr(new Pair(*(iter)));
-	}
-	else {
-		return Pair::ConstPtr();
-	}
+bool Client::waitUntilReady(std::chrono::milliseconds timeout) {
+  std::unique_lock lock(ready_mutex_);
+  return ready_changed_.wait_for(lock, timeout, [this] { return ready(); });
 }
 
-bool ClientSession::setPairUpdate(const Pair& pair, Client* client, int subscriber_only_one)
-{
-	//SRNP_PRINT_DEBUG << "In setPairUpdate Now... with " << pair.subscribers_.size() << " no of subsribers --- oo: "<< subscriber_only_one;
-	
-	std::ostringstream data_stream;
-	boost::archive::text_oarchive data_archive (data_stream);
-	data_archive << pair;
-	std::string out_data_ = data_stream.str();
-	// END
+void Client::onMasterMessage(int owner_id, const std::vector<ComponentInfo>& components) {
+  owner_id_.store(owner_id, std::memory_order_relaxed);
+  for (const auto& component : components) addSession(component);
 
-	// Setup the message header.
-	srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::PAIR_UPDATE);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-	{
-		SRNP_PRINT_FATAL << "[setPairUpdate]: Couldn't set stream size.";
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-
-	//SRNP_PRINT_DEBUG << "Writing Pair Data To OTHER Server/servers.";
-
-	if(subscriber_only_one != -1)
-	{
-		//SRNP_PRINT_DEBUG << "ONE ONLY MAN!!!!";
-		if(client->sessions_map_.find(subscriber_only_one) != client->sessions_map_.end())
-		{
-			boost::mutex::scoped_lock write_lock(client->sessions_map_[subscriber_only_one]->server_write_mutex);
-			client->sessions_map_[subscriber_only_one]->sendDataToServer(out_header_size_, out_header_, out_data_);
-			//SRNP_PRINT_DEBUG << " Only one data sentings.";
-		}
-		else
-		{
-			SRNP_PRINT_FATAL << "A subscriber cound't be found.";
-		}
-
-		return true;
-	}
-
-	// Obvious else...
-	for (std::vector <int>::const_iterator it = pair.subscribers_.begin(); it != pair.subscribers_.end(); it ++)
-	{
-		if(client->sessions_map_.find(*it) != client->sessions_map_.end())
-		{
-			boost::mutex::scoped_lock write_lock(client->sessions_map_[*it]->server_write_mutex);
-			client->sessions_map_[*it]->sendDataToServer(out_header_size_, out_header_, out_data_);
-		}
-		else
-		{
-			SRNP_PRINT_FATAL << "A subscriber cound't be found.";
-			it--;
-			usleep(100000);
-			continue;
-		}
-			
-	}
-
-	return true;
+  {
+    std::lock_guard lock(ready_mutex_);
+    ready_.store(true, std::memory_order_release);
+  }
+  ready_changed_.notify_all();
 }
 
-CallbackHandle Client::registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn)
-{
-	boost::mutex::scoped_lock pair_space_lock (this->pair_space_.mutex);
-
-	if(key.compare("*") == 0) {
-		pair_space_.addCallbackToAll(callback_fn);
-		return -1.0;
-	}
-	
-	else {
-		return pair_space_.addCallback(owner, key, callback_fn);
-	}
+void Client::addSession(const ComponentInfo& component) {
+  auto session = std::make_shared<ClientSession>(io_, component.ip, component.port, *this, false,
+                                                 component.owner);
+  {
+    std::lock_guard lock(state_mutex_);
+    // A component reusing an owner id replaces the stale session.
+    sessions_.insert_or_assign(component.owner, session);
+  }
+  asio::co_spawn(session->strand(), session->run(), asio::detached);
 }
 
-void Client::cancelCallback(const double& cbid)
-{
-	boost::mutex::scoped_lock pair_space_lock(pair_space_.mutex);
-	pair_space_.removeCallback(cbid);
+void Client::removeSession(int owner) {
+  ClientSessionPtr session;
+  {
+    std::lock_guard lock(state_mutex_);
+    if (const auto it = sessions_.find(owner); it != sessions_.end()) {
+      session = it->second;
+      sessions_.erase(it);
+    }
+  }
+  if (session) session->close();
 }
 
-void Client::cancelSubscription(const int& owner, const std::string& key) {
-
-	std::vector <std::string>::iterator iter_to_del = std::find(owner_id_to_subscribed_pairs_[owner].begin(), owner_id_to_subscribed_pairs_[owner].end(), key);
-	if(iter_to_del == owner_id_to_subscribed_pairs_[owner].end()) {
-		SRNP_PRINT_WARNING << "Don't unsubscribe from messages that you aren't subscribed to!";
-	}
-	else {
-		owner_id_to_subscribed_pairs_[owner].erase(iter_to_del);
-	}
-		
-	if(sessions_map_.find(owner) == sessions_map_.end()) {
-		//SRNP_PRINT_ERROR << "Not yet!";
-		return;
-	}
-		
-	SubscriptionORCallback subs_msg;
-
-	subs_msg.key = key;
-	subs_msg.registering = false;
-	subs_msg.owner_id = owner;
-	subs_msg.subscriber = owner_id_;
-
-	std::ostringstream data_stream;
-	boost::archive::text_oarchive data_archive (data_stream);
-	data_archive << subs_msg;
-	std::string out_data_ = data_stream.str();
-	// END
-
-	// Setup the message header.
-	srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-	{
-		SRNP_PRINT_FATAL << "[cancelSubscription]: Couldn't set stream size.";
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-
-	boost::mutex::scoped_lock write_lock(sessions_map_[owner]->server_write_mutex);
-	sessions_map_[owner]->sendDataToServer(out_header_size_, out_header_, out_data_);
-	
+ClientSessionPtr Client::sessionFor(int owner) const {
+  std::lock_guard lock(state_mutex_);
+  const auto it = sessions_.find(owner);
+  return it == sessions_.end() ? nullptr : it->second;
 }
 
-void Client::cancelSubscription(const std::string& key)
-{
-	std::vector <std::string>::iterator key_iter = std::find(subscribed_tuples_.begin(), subscribed_tuples_.end(), key);
-	if(key_iter == subscribed_tuples_.end())
-	{
-		SRNP_PRINT_WARNING << "Unsubscribe attemped for a tuple that wasn't subscribed to in the first place.";
-		return;
-	}
-
-	subscribed_tuples_.erase(key_iter);
-	// Serialize the tuple first.
-	// So we set-up the header according to this.
-	for(std::map <int, ClientSession*>::iterator iter = sessions_map_.begin(); iter!= sessions_map_.end(); iter++)
-	{
-		SubscriptionORCallback subs_msg;
-
-		subs_msg.key = key;
-		subs_msg.registering = false;
-		subs_msg.owner_id = iter->first;
-		subs_msg.subscriber = owner_id_;
-
-		std::ostringstream data_stream;
-		boost::archive::text_oarchive data_archive (data_stream);
-		data_archive << subs_msg;
-		std::string out_data_ = data_stream.str();
-		// END
-
-		// Setup the message header.
-		srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
-		// Serialize the data first so we know how large it is.
-		std::ostringstream header_archive_stream;
-		boost::archive::text_oarchive header_archive(header_archive_stream);
-		header_archive << header;
-		std::string out_header_ = header_archive_stream.str();
-		// END
-
-		// Prepare header length
-		std::ostringstream header_size_stream;
-		header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-		if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-		{
-			SRNP_PRINT_FATAL << "[cancelSubscription]: Couldn't set stream size.";
-		}
-		std::string  out_header_size_ = header_size_stream.str();
-
-		boost::mutex::scoped_lock write_lock((iter->second)->server_write_mutex);
-		(iter->second)->sendDataToServer(out_header_size_, out_header_, out_data_);
-	}
+std::vector<ClientSessionPtr> Client::allSessions() const {
+  std::lock_guard lock(state_mutex_);
+  std::vector<ClientSessionPtr> sessions;
+  sessions.reserve(sessions_.size());
+  for (const auto& [owner, session] : sessions_) sessions.push_back(session);
+  return sessions;
 }
 
-SubscriptionHandle Client::registerSubscription(const std::string& key)
-{
-	if(std::find(subscribed_tuples_.begin(), subscribed_tuples_.end(), key) != subscribed_tuples_.end())
-	{
-		SRNP_PRINT_WARNING << "Trying to re-subscribe to an already subscribed tuple.";
-		return 0;
-	}
-
-	subscribed_tuples_.push_back(key);
-
-	subscription_handle_to_key_multiple_[++subscription_handle_new_] = key;
-
-	for(std::map <int, ClientSession*>::iterator iter = sessions_map_.begin(); iter!= sessions_map_.end(); iter++)
-	{
-		// Serialize the tuple first.
-		// So we set-up the header according to this.
-		SubscriptionORCallback subs_msg;
-
-		subs_msg.key = key;
-		subs_msg.registering = true;
-		subs_msg.owner_id = iter->first;
-		subs_msg.subscriber = owner_id_;
-
-		std::ostringstream data_stream;
-		boost::archive::text_oarchive data_archive (data_stream);
-		data_archive << subs_msg;
-		std::string out_data_ = data_stream.str();
-		// END
-
-		// Setup the message header.
-		srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
-		// Serialize the data first so we know how large it is.
-		std::ostringstream header_archive_stream;
-		boost::archive::text_oarchive header_archive(header_archive_stream);
-		header_archive << header;
-		std::string out_header_ = header_archive_stream.str();
-		// END
-
-		// Prepare header length
-		std::ostringstream header_size_stream;
-		header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-		if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-		{
-			SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
-		}
-		std::string  out_header_size_ = header_size_stream.str();
-
-	
-		boost::mutex::scoped_lock write_lock((iter->second)->server_write_mutex);
-		(iter->second)->sendDataToServer(out_header_size_, out_header_, out_data_);
-	}
-
-	return subscription_handle_new_;
+std::vector<Client::SubscriptionRecord> Client::subscriptionsFor(int owner) const {
+  std::lock_guard lock(state_mutex_);
+  std::vector<SubscriptionRecord> matching;
+  for (const auto& [handle, record] : subscriptions_)
+    if (record.owner == kAnyOwner || record.owner == owner) matching.push_back(record);
+  return matching;
 }
 
-SubscriptionHandle Client::registerSubscription(const int& owner, const std::string& key)
-{
-	if(std::find(subscribed_tuples_.begin(), subscribed_tuples_.end(), key) != subscribed_tuples_.end())
-	{
-		SRNP_PRINT_WARNING << "Trying to re-subscribe to an already subscribed tuple.";
-		return 0;
-	}
+bool Client::setPair(std::string_view key, std::string_view value, Pair::Type type) {
+  if (!my_server_session_) return false;
 
-	std::vector <std::string>::iterator iter_to_check = std::find(owner_id_to_subscribed_pairs_[owner].begin(), owner_id_to_subscribed_pairs_[owner].end(), key);
-	if(iter_to_check != owner_id_to_subscribed_pairs_[owner].end()) {
-		SRNP_PRINT_WARNING << "Trying to re-subscribe to an already subscribed tuple.";
-		return 0;
-	}
+  Pair pair(ownerId(), std::string(key), std::string(value), type);
 
-	owner_id_to_subscribed_pairs_[owner].push_back(key);
-
-	subscription_handle_to_owner_key_[++subscription_handle_new_] = std::pair<int, std::string> (owner, key);
-
-	if(sessions_map_.find(owner) == sessions_map_.end()) {
-		//SRNP_PRINT_ERROR << "Not yet!";
-		return subscription_handle_new_;
-	}
-
-	// Serialize the tuple first.
-	// So we set-up the header according to this.
-	SubscriptionORCallback subs_msg;
-
-	subs_msg.key = key;
-	subs_msg.registering = true;
-	subs_msg.owner_id = owner;
-	subs_msg.subscriber = owner_id_;
-
-	std::ostringstream data_stream;
-	boost::archive::text_oarchive data_archive (data_stream);
-	data_archive << subs_msg;
-	std::string out_data_ = data_stream.str();
-	// END
-
-	// Setup the message header.
-	srnp::MessageHeader header (out_data_.size(), srnp::MessageHeader::SUBSCRIPTION);
-	// Serialize the data first so we know how large it is.
-	std::ostringstream header_archive_stream;
-	boost::archive::text_oarchive header_archive(header_archive_stream);
-	header_archive << header;
-	std::string out_header_ = header_archive_stream.str();
-	// END
-
-	// Prepare header length
-	std::ostringstream header_size_stream;
-	header_size_stream << std::setw(sizeof(uint64_t))	<< std::hex << out_header_.size();
-	if (!header_size_stream || header_size_stream.str().size() != sizeof(uint64_t))
-	{
-		SRNP_PRINT_FATAL << "[registerSubscription]: Couldn't set stream size.";
-	}
-	std::string  out_header_size_ = header_size_stream.str();
-
-	boost::mutex::scoped_lock write_lock(sessions_map_[owner]->server_write_mutex);
-	sessions_map_[owner]->sendDataToServer(out_header_size_, out_header_, out_data_);
-
-	return subscription_handle_new_;
+  // The pair goes through the queue rather than the socket; the empty frame
+  // just tells our server there is one waiting.
+  auto guard = pair_queue_.outgoing.lock();
+  pair_queue_.outgoing.push(std::move(pair));
+  my_server_session_->send(wire::frame(wire::MessageType::PairNoCopy));
+  return true;
 }
 
-void Client::cancelSubscription(const SubscriptionHandle& handle) {
+bool Client::setRemotePair(int owner, std::string_view key, std::string_view value,
+                           Pair::Type type) {
+  auto session = sessionFor(owner);
+  if (!session) {
+    SRNP_WARN("cannot set a pair on {}: not connected", owner);
+    return false;
+  }
 
-	if(handle == 0) {
-		SRNP_PRINT_WARNING << "You are trying to use a SubscriptionHandleError to unsubscribe. SubscriptionHandle of 0 means error!";
-		return;
-	}
-	
-	std::map <SubscriptionHandle, std::pair<int, std::string> >::iterator iter = subscription_handle_to_owner_key_.find(handle);
-	if(iter == subscription_handle_to_owner_key_.end()) {
-		std::map <SubscriptionHandle, std::string>::iterator iter_map2 = subscription_handle_to_key_multiple_.find(handle);
-		if(iter_map2 == subscription_handle_to_key_multiple_.end()) {
-			SRNP_PRINT_WARNING << "Trying to cancel a subscription that doesn't exist is a crime!";
-			return;
-		}
-		else {
-			cancelSubscription(iter_map2->second);
-			subscription_handle_to_key_multiple_.erase(iter_map2);
-		}
-	}
-	else {
-		cancelSubscription(iter->second.first, iter->second.second);
-		subscription_handle_to_owner_key_.erase(iter);
-	}
+  const Pair pair(owner, std::string(key), std::string(value), type);
+  session->send(wire::frameOf(wire::MessageType::Pair, pair));
+  return true;
 }
 
-
-Client::~Client()
-{
-	for(std::map <int, ClientSession*>::iterator it = sessions_map_.begin(); it != sessions_map_.end(); it++) {
-		delete(it->second);
-	}
-	//SRNP_PRINT_INFO << "Client sessions closed.";
-
-	sessions_map_.clear();
-	this->my_server_session_.reset();
-
-	//SRNP_PRINT_INFO << "CLIENT CLOSES CLEANLY!";
+std::optional<Pair> Client::getPair(int owner, std::string_view key) {
+  std::lock_guard lock(pair_space_.mutex);
+  return pair_space_.copyOf(owner, key);
 }
 
-} /* namespace srnp */
+std::optional<Pair> Client::getPairIndirectly(int metaowner, std::string_view metakey) {
+  const auto metapair = getPair(metaowner, metakey);
+  if (!metapair) {
+    SRNP_WARN("no meta-pair [{}] {}. Did you subscribe to it?", metaowner, metakey);
+    return std::nullopt;
+  }
+
+  const auto target = parseMetaValue(metapair->getValue());
+  if (!target) {
+    SRNP_WARN("[{}] {} is not a meta-pair", metaowner, metakey);
+    return std::nullopt;
+  }
+  return getPair(target->owner, target->key);
+}
+
+bool Client::setPairIndirectly(int metaowner, std::string_view metakey, std::string_view value) {
+  const auto metapair = getPair(metaowner, metakey);
+  if (!metapair) {
+    SRNP_WARN("no meta-pair [{}] {}. Did you subscribe to it?", metaowner, metakey);
+    return false;
+  }
+
+  const auto target = parseMetaValue(metapair->getValue());
+  if (!target) {
+    SRNP_WARN("[{}] {} is not a meta-pair", metaowner, metakey);
+    return false;
+  }
+
+  if (target->owner == ownerId()) return setPair(target->key, value);
+  return setRemotePair(target->owner, target->key, value);
+}
+
+bool Client::setMetaPair(int meta_owner, std::string_view meta_key, int owner,
+                         std::string_view key) {
+  const auto value = std::format("(META {} {})", owner, key);
+  if (meta_owner == ownerId()) return setPair(meta_key, value, Pair::Type::String);
+  return setRemotePair(meta_owner, meta_key, value, Pair::Type::String);
+}
+
+bool Client::initMetaPair(int meta_owner, std::string_view meta_key) {
+  if (meta_owner == ownerId()) return setPair(meta_key, kNullMeta, Pair::Type::Meta);
+  return setRemotePair(meta_owner, meta_key, kNullMeta, Pair::Type::Meta);
+}
+
+CallbackHandle Client::registerCallback(int owner, std::string_view key,
+                                        Pair::CallbackFunction callback_fn) {
+  std::lock_guard lock(pair_space_.mutex);
+
+  if (key == kWildcardKey) {
+    pair_space_.addCallbackToAll(std::move(callback_fn));
+    return kInvalidCallbackHandle;
+  }
+  return pair_space_.addCallback(owner, key, std::move(callback_fn));
+}
+
+void Client::cancelCallback(CallbackHandle handle) {
+  std::lock_guard lock(pair_space_.mutex);
+  pair_space_.removeCallback(handle);
+}
+
+bool Client::sendSubscription(int owner, std::string_view key, bool registering) {
+  Subscription message;
+  message.key = std::string(key);
+  message.subscriber = ownerId();
+  message.registering = registering;
+
+  if (owner != kAnyOwner) {
+    auto session = sessionFor(owner);
+    if (!session) return false;  // Replayed when that component connects.
+    message.owner_id = owner;
+    session->send(wire::frameOf(wire::MessageType::Subscription, message));
+    return true;
+  }
+
+  // A wildcard subscription goes to everyone we know about, addressed to each.
+  for (const auto& session : allSessions()) {
+    message.owner_id = session->endpointOwner();
+    session->send(wire::frameOf(wire::MessageType::Subscription, message));
+  }
+  return true;
+}
+
+SubscriptionHandle Client::registerSubscription(int owner, std::string_view key) {
+  SubscriptionHandle handle = kInvalidSubscriptionHandle;
+  {
+    std::lock_guard lock(state_mutex_);
+    const auto duplicate = std::ranges::any_of(subscriptions_, [&](const auto& entry) {
+      return entry.second.owner == owner && entry.second.key == key;
+    });
+    if (duplicate) {
+      SRNP_WARN("already subscribed to [{}] {}", owner, key);
+      return kInvalidSubscriptionHandle;
+    }
+
+    handle = ++next_subscription_handle_;
+    subscriptions_.emplace(handle, SubscriptionRecord{owner, std::string(key)});
+  }
+
+  sendSubscription(owner, key, true);
+  return handle;
+}
+
+SubscriptionHandle Client::registerSubscription(std::string_view key) {
+  return registerSubscription(kAnyOwner, key);
+}
+
+void Client::cancelSubscription(int owner, std::string_view key) {
+  {
+    std::lock_guard lock(state_mutex_);
+    const auto it = std::ranges::find_if(subscriptions_, [&](const auto& entry) {
+      return entry.second.owner == owner && entry.second.key == key;
+    });
+    if (it == subscriptions_.end()) {
+      SRNP_WARN("not subscribed to [{}] {}", owner, key);
+      return;
+    }
+    subscriptions_.erase(it);
+  }
+
+  sendSubscription(owner, key, false);
+}
+
+void Client::cancelSubscription(std::string_view key) { cancelSubscription(kAnyOwner, key); }
+
+void Client::cancelSubscription(SubscriptionHandle handle) {
+  SubscriptionRecord record;
+  {
+    std::lock_guard lock(state_mutex_);
+    const auto it = subscriptions_.find(handle);
+    if (it == subscriptions_.end()) {
+      SRNP_WARN("no subscription under handle {}", handle);
+      return;
+    }
+    record = it->second;
+    subscriptions_.erase(it);
+  }
+
+  sendSubscription(record.owner, record.key, false);
+}
+
+}  // namespace srnp

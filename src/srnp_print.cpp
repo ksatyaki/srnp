@@ -1,6 +1,6 @@
 /*
-  srnp_print.cpp
-  
+  srnp_print.cpp - Implementation of the logger.
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -19,40 +19,77 @@
 
 #include <srnp/srnp_print.h>
 
-namespace srnp
-{
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <filesystem>
+#include <mutex>
 
-void srnp_print_setup(const std::string& str_level)
-{
-	
-#ifdef WITH_BOOST_LOG
-	boost::log::trivial::severity_level level;
+namespace srnp {
+namespace {
 
-	if(str_level.compare ("debug") == 0 || str_level.compare ("DEBUG") == 0)
-		level = boost::log::trivial::debug;
-	else if(str_level.compare ("fatal") == 0 || str_level.compare ("FATAL") == 0)
-		level = boost::log::trivial::fatal;
-	else if(str_level.compare ("error") == 0 || str_level.compare ("ERROR") == 0)
-		level = boost::log::trivial::error;
-	else if(str_level.compare ("trace") == 0 || str_level.compare ("TRACE") == 0)
-		level = boost::log::trivial::trace;
-	else if(str_level.compare ("warning") == 0 || str_level.compare ("WARNING") == 0)
-		level = boost::log::trivial::warning;
-	else
-		level = boost::log::trivial::info;
+std::atomic<LogLevel> g_level{LogLevel::Info};
 
-	boost::log::add_common_attributes();
-	boost::shared_ptr<boost::log::core> core = boost::log::core::get();
+// Serialises writes so lines from different threads don't interleave.
+std::mutex g_write_mutex;
 
-	// setup console log
-	boost::log::add_console_log (
-	    std::clog,
-		boost::log::keywords::filter = severity >= level,
-		boost::log::keywords::format = (
-	    		boost::log::expressions::stream << "[SRNP | "<< boost::log::expressions::format_date_time(timestamp, "%H:%M:%S %d-%m-%Y") <<"] (" << severity << "): " << boost::log::expressions::smessage
-	    )
-	);
-#endif
+constexpr std::array<std::pair<std::string_view, LogLevel>, 7> kLevelNames{{
+    {"trace", LogLevel::Trace},
+    {"debug", LogLevel::Debug},
+    {"info", LogLevel::Info},
+    {"warning", LogLevel::Warning},
+    {"error", LogLevel::Error},
+    {"fatal", LogLevel::Fatal},
+    {"off", LogLevel::Off},
+}};
+
+std::string_view nameOf(LogLevel level) {
+  for (const auto& [name, value] : kLevelNames)
+    if (value == level) return name;
+  return "?";
 }
 
+}  // namespace
+
+bool srnp_print_setup(std::string_view level) {
+  std::string lowered(level);
+  std::ranges::transform(lowered, lowered.begin(),
+                         [](unsigned char c) { return std::tolower(c); });
+
+  for (const auto& [name, value] : kLevelNames) {
+    if (name == lowered) {
+      g_level.store(value, std::memory_order_relaxed);
+      return true;
+    }
+  }
+  return false;
 }
+
+LogLevel logLevel() { return g_level.load(std::memory_order_relaxed); }
+
+void logLine(LogLevel level, std::string_view message, const std::source_location& where) {
+  const auto now = std::chrono::floor<std::chrono::milliseconds>(
+      std::chrono::system_clock::now());
+
+  std::string line = std::format("[{:%H:%M:%S}] ({}): {}", now, nameOf(level), message);
+
+  // Only the levels you'd actually go looking for get a file and line.
+  if (level >= LogLevel::Warning) {
+    line += std::format(" [{}:{}]",
+                        std::filesystem::path(where.file_name()).filename().string(),
+                        where.line());
+  }
+  line += '\n';
+
+  std::FILE* stream = level >= LogLevel::Warning ? stderr : stdout;
+
+  std::lock_guard lock(g_write_mutex);
+  std::fputs(line.c_str(), stream);
+  // Flush every line: a log that loses its last entries when the process is
+  // killed is no use for working out why it was killed.
+  std::fflush(stream);
+}
+
+}  // namespace srnp

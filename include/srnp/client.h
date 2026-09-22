@@ -1,6 +1,6 @@
 /*
   client.h - Client is what an application directly uses.
-  
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -20,196 +20,181 @@
 #ifndef SRNP_CLIENT_H_
 #define SRNP_CLIENT_H_
 
-#include <srnp/srnp_print.h>
-
-#include <queue>
-#include <iostream>
-#include <boost/asio.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/shared_array.hpp>
-#include <string.h>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/bind.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/archive/text_iarchive.hpp>
-
-#include <srnp/msgs/CommMessages.h>
-#include <srnp/msgs/MessageHeader.h>
-#include <srnp/msgs/MasterMessages.h>
 #include <srnp/Pair.h>
 #include <srnp/PairQueue.h>
 #include <srnp/PairSpace.h>
+#include <srnp/msgs/CommMessages.h>
+#include <srnp/msgs/MasterMessages.h>
+#include <srnp/session.h>
 
-#ifdef WIN32
-#include <windows.h>
-#endif
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
-#ifdef UNIX
-#include <unistd.h>
-#include <sys/types.h>
-#endif
-
-#define RECONNECT_TIMEOUT 10
-
-using boost::asio::ip::tcp;
-
-namespace srnp
-{
+namespace srnp {
 
 class Client;
 
-class ClientSession
-{
-protected:
+/// How long to wait before retrying a connection to another component.
+inline constexpr std::chrono::seconds kReconnectDelay{10};
 
-	/**
-	 * To know if this is our session with our own server.
-	 */
-	bool is_this_our_server_session_;
+/**
+ * One outbound connection. Either to our own server, which is the only one
+ * we read from, or to another component's server, which we only write to.
+ */
+class ClientSession : public std::enable_shared_from_this<ClientSession> {
+ public:
+  ClientSession(asio::io_context& io, std::string host, std::string port, Client& client,
+                bool is_our_own_server, int endpoint_owner_id);
 
-	/**
-	 * To receive the size.
-	 */
-	boost::array <char, sizeof(uint64_t)> in_size_;
+  /// Connects, and for our own server keeps reading until it goes away.
+  /// Connections to other components retry until they succeed or we close.
+  asio::awaitable<void> run();
 
-	/**
-	 * To receive the header.
-	 */
-	std::vector <char> in_header_;
+  void send(std::vector<std::byte> frame);
+  void close();
 
-	/**
-	 * To receive data.
-	 */
-	std::vector <char> in_data_;
+  Strand& strand() { return strand_; }
+  int endpointOwner() const { return endpoint_owner_id_; }
 
-	/**
-	 * Save the endpoint_iterator for this session.
-	 */
-	tcp::resolver::iterator endpoint_iterator_;
+ private:
+  asio::awaitable<bool> connect();
+  asio::awaitable<void> readLoop();
 
-	/**
-	 * The owner id of the endpoint srnp component.
-	 */
-	int endpoint_owner_id_;
+  void handleMasterMessage(const Frame& frame);
+  void handleUpdateComponents(const Frame& frame);
+  void handlePairUpdate(const Frame& frame);
 
-	/**
-	 * A deadline timer to wait for timeout before attempting to reconnect.
-	 */
-	boost::asio::deadline_timer reconnect_timer_;
+  /// Pushes a pair to every component subscribed to it, or to just one.
+  void forwardPairUpdate(const Pair& pair, int only_subscriber);
 
-	/**
-	 * A Resolver to resolve requests/queries.
-	 */
-	tcp::resolver resolver_;
+  /// Replays our subscriptions to a component we just connected to.
+  void sendSubscriptionsFor(int owner);
 
-	/**
-	 * A socket per session.
-	 */
-	boost::shared_ptr<tcp::socket> socket_;
+  asio::io_context& io_;
+  /// Owned here rather than by the channel, because run() needs a strand
+  /// to start on before there is a connection to make a channel from.
+  Strand strand_;
+  std::string host_;
+  std::string port_;
+  Client& client_;
+  bool is_our_own_server_;
+  int endpoint_owner_id_;
 
-	/**
-	 * A handler to see if we are connected.
-	 */
-	void handleConnection (Client* client, const boost::system::error_code& err);
-
-	/**
-	 * Handle MasterMessage and UpdateComponents messages from Server.
-	 * Pair messages also arrive here. We send it to the corresponding server.
-	 */
-	void handleMMandUCandPairMsgs (Client* client, const boost::system::error_code& error);
-
-	/**
-	 * This function is called when reconnection should be attempted.
-	 * That is, the timer expires and this gets called.
-	 */
-	void reconnectTimerCallback(Client* client);
-
-	Client* client_;
-
-	bool setPairUpdate(const Pair& pair, Client* client, int subscriber_only_one);
-
-	void sendSubscriptionMsgs(Client* client);
-
-public:
-
-	/**
-	 * Only one guy should write to this socket at any time.
-	 */
-	boost::mutex server_write_mutex;
-
-	/**
-	 * Sends the message to the server. Async operation.
-	 */
-	bool sendDataToServer(const std::string& out_header_size, const std::string& out_header, const std::string& out_data); 
-
-	ClientSession(boost::asio::io_service& service, const std::string& host, const std::string& port, bool is_this_our_server_session = false, Client* client = NULL, const int& endpoint_owner_id = -10);
-	~ClientSession();
+  std::mutex channel_mutex_;
+  FrameChannelPtr channel_;
+  /// Frames sent before the connection came up. Without this, anything
+  /// published in the moment after learning about a component is lost.
+  std::deque<std::vector<std::byte>> pending_;
+  std::atomic<bool> closing_{false};
 };
 
-class Client
-{
+using ClientSessionPtr = std::shared_ptr<ClientSession>;
 
-protected:
+class Client {
+ public:
+  Client(asio::io_context& io, std::string our_server_ip, std::string our_server_port,
+         PairSpace& pair_space, PairQueue& pair_queue);
+  ~Client();
 
-	std::vector <std::string> subscribed_tuples_;
+  Client(const Client&) = delete;
+  Client& operator=(const Client&) = delete;
 
-	std::map <int, std::vector <std::string> > owner_id_to_subscribed_pairs_;
+  /// True once the master has told us our owner id.
+  bool ready() const { return ready_.load(std::memory_order_acquire); }
 
-	std::map <SubscriptionHandle, std::pair <int, std::string> > subscription_handle_to_owner_key_;
+  /// Blocks until ready(), or until the timeout runs out.
+  bool waitUntilReady(std::chrono::milliseconds timeout);
 
-	std::map <SubscriptionHandle, std::string> subscription_handle_to_key_multiple_;
+  int ownerId() const { return owner_id_.load(std::memory_order_relaxed); }
 
-	boost::mutex socket_write_mutex;
+  [[nodiscard]] bool setPair(std::string_view key, std::string_view value,
+                             Pair::Type type = Pair::Type::String);
+  [[nodiscard]] bool setRemotePair(int owner, std::string_view key, std::string_view value,
+                                   Pair::Type type = Pair::Type::String);
 
-	friend class ClientSession;
+  /// Follows a meta-pair to the pair it points at, then sets that one.
+  [[nodiscard]] bool setPairIndirectly(int metaowner, std::string_view metakey,
+                                       std::string_view value);
 
-	int owner_id_;
+  /// Points a meta-pair at <owner, key>.
+  [[nodiscard]] bool setMetaPair(int meta_owner, std::string_view meta_key, int owner,
+                                 std::string_view key);
+  /// Creates a meta-pair that points nowhere yet.
+  [[nodiscard]] bool initMetaPair(int meta_owner, std::string_view meta_key);
 
-	bool ready_;
+  std::optional<Pair> getPair(int owner, std::string_view key);
+  std::optional<Pair> getPairIndirectly(int metaowner, std::string_view metakey);
 
-	boost::shared_ptr <ClientSession> my_server_session_;
+  CallbackHandle registerCallback(int owner, std::string_view key,
+                                  Pair::CallbackFunction callback_fn);
+  void cancelCallback(CallbackHandle handle);
 
-	boost::asio::io_service& service_;
+  /// Subscribes to one component's pair, or with kAnyOwner to that key on
+  /// every component. Returns kInvalidSubscriptionHandle if already subscribed.
+  SubscriptionHandle registerSubscription(int owner, std::string_view key);
+  SubscriptionHandle registerSubscription(std::string_view key);
 
-	boost::posix_time::time_duration elapsed_time_;
+  void cancelSubscription(SubscriptionHandle handle);
+  void cancelSubscription(int owner, std::string_view key);
+  void cancelSubscription(std::string_view key);
 
-	PairQueue& pair_queue_;
+  void close();
 
-	PairSpace& pair_space_;
+ private:
+  friend class ClientSession;
 
-	std::map <int, ClientSession*> sessions_map_;
+  /// One subscription we hold, remembered so it can be replayed to
+  /// components that connect later.
+  struct SubscriptionRecord {
+    int owner = kAnyOwner;
+    std::string key;
+  };
 
-	SubscriptionHandle subscription_handle_new_ ;
+  void onMasterMessage(int owner_id, const std::vector<ComponentInfo>& components);
+  void addSession(const ComponentInfo& component);
+  void removeSession(int owner);
 
-public:
-	inline bool ready() { return ready_; }
-	bool setPair(const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
-	bool setRemotePair(const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
-	bool setPairIndirectly(const int& metaowner, const std::string& metakey, const std::string& value);
-	
-	bool setMetaPair(const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key);
-	bool initMetaPair(const int& meta_owner, const std::string& meta_key);
+  ClientSessionPtr sessionFor(int owner) const;
+  std::vector<ClientSessionPtr> allSessions() const;
 
-	Pair::ConstPtr getPair(const int& owner, const std::string& key);
-	Pair::ConstPtr getPairIndirectly(const int& metaowner, const std::string& metakey);
+  /// The subscriptions that apply to one component, wildcard ones included.
+  std::vector<SubscriptionRecord> subscriptionsFor(int owner) const;
 
-	CallbackHandle registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn);
-	void cancelCallback(const CallbackHandle& cbid);
+  bool sendSubscription(int owner, std::string_view key, bool registering);
 
-	SubscriptionHandle registerSubscription (const int& owner, const std::string& key);
-	SubscriptionHandle registerSubscription (const std::string& key);
+  asio::io_context& io_;
+  PairSpace& pair_space_;
+  PairQueue& pair_queue_;
 
-	void cancelSubscription (const SubscriptionHandle &handle);
-	void cancelSubscription (const int& owner, const std::string& key);
-	void cancelSubscription (const std::string& key);
+  std::atomic<int> owner_id_{kAnyOwner};
+  std::atomic<bool> ready_{false};
 
-	Client(boost::asio::io_service& service, std::string our_server_ip, std::string our_server_port, PairSpace& pair_space, PairQueue& pair_queue);
+  /// Only for waiters that want a timeout; ready() itself stays lock-free.
+  std::mutex ready_mutex_;
+  std::condition_variable ready_changed_;
 
-	virtual ~Client();
+  ClientSessionPtr my_server_session_;
+
+  mutable std::mutex state_mutex_;
+  std::map<int, ClientSessionPtr> sessions_;
+  /// Every subscription we hold, by handle. Replaces the four maps this
+  /// used to keep in parallel.
+  std::map<SubscriptionHandle, SubscriptionRecord> subscriptions_;
+  SubscriptionHandle next_subscription_handle_ = kInvalidSubscriptionHandle;
 };
 
-std::vector<std::string> extractStrings(const char p[]);
+/// Splits "(META 1234 key)" into its three words. Public because the
+/// meta-pair helpers parse the same format.
+std::vector<std::string> extractStrings(std::string_view text);
 
-} /* namespace srnp */
+}  // namespace srnp
 
-#endif /* INCLUDE_SRNP_CLIENT_H_ */
+#endif /* SRNP_CLIENT_H_ */

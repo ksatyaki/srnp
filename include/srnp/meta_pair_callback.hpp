@@ -1,67 +1,50 @@
+/*
+  meta_pair_callback.hpp - Callbacks that follow a meta-pair.
+
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
+
 #ifndef SRNP_META_PAIR_CALLBACK_HPP_
 #define SRNP_META_PAIR_CALLBACK_HPP_
 
-#include <map>
-#include <vector>
-#include <string.h>
-#include <stdio.h>
-#include <string>
-#include <algorithm>
-#include <boost/shared_ptr.hpp>
-
 #include <srnp/srnp_kernel.h>
 
+#include <string>
+#include <string_view>
+
 namespace srnp {
-	
-	typedef std::pair <int, std::string> PairKey;
 
-	struct MetaCallbackInfo {
+/**
+ * A meta-pair holds "(META owner key)", naming another pair. Registering
+ * here follows that pointer: when the meta-pair changes to name a
+ * different target, the subscription and callback move with it.
+ *
+ * @param cb Left empty to only track the target, without a callback.
+ */
+void registerMetaCallback(int meta_owner_id, std::string_view meta_pair_key,
+                          Pair::CallbackFunction cb);
 
-		bool hasACallback;
-		bool hasASubscription;
-		SubscriptionHandle meta_subscriber_handle;
-		SubscriptionHandle subscriber_handle;
-		CallbackHandle meta_callback_handle;
-		CallbackHandle callback_handle;
-		Pair::CallbackFunction fn;
+/// Tracks the target of a meta-pair without running a callback on it.
+void registerMetaSubscription(int meta_owner_id, std::string_view meta_pair_key);
 
-		MetaCallbackInfo (Pair::CallbackFunction _fn_) :
-			fn(_fn_), hasACallback(false), hasASubscription(false) {}
-	};
+/// Drops the meta-pair's own subscription and whatever it currently points at.
+void cancelMetaCallback(int meta_owner_id, std::string_view meta_pair_key);
 
-    /** 
-     * A function that is called when the meta-pair changes. Ideally
-     * this should be part of the original metaCallback in the PEIS kernel.
-     * 
-     * @param metapair The meta pair that has changed.
-     * @param userdata Any user data.
-     */
-	void metaCallback(const Pair::ConstPtr& metapair, MetaCallbackInfo* meta_callback_info);
+void cancelMetaSubscription(int meta_owner_id, std::string_view meta_pair_key);
 
-    /** 
-      * A function to register a callback on the meta-pair. 
-      * 
-      * @param meta_owner_id The owner id of the component that owns the
-      *                      meta-pair.
-      * @param meta_pair_key The key of the meta-pair.
-      * @param fn The callback that should be invoked.
-	  * @param userdata The userdata to be passed.
-	  */
-	void registerMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key, const Pair::CallbackFunction& cb);
-
-	void registerMetaSubscription(const int& meta_owner_id, const std::string& meta_pair_key);
-
-	void cancelMetaSubscription(const int& meta_owner_id, const std::string& meta_pair_key);
-
-     /** 
-      * A function to 'un-register', i.e., cancel the meta-callback on a owner, key pair.
-      * 
-      * @param meta_owner_id The owner id of the meta pair.
-      * @param meta_pair_key The key of the meta pair.
-      */
-	void cancelMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key);
-}
+}  // namespace srnp
 
 #endif
-
-

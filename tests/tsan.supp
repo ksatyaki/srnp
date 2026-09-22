@@ -1,0 +1,3 @@
+# Asio synchronises internally in ways TSan cannot always see. Suppress by
+# frame, never by skipping the TSan run itself.
+race:boost::asio::detail::

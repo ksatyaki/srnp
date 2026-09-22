@@ -1,7 +1,6 @@
 /*
-  CommMessages.h - Defines common messages sent between client and
-  server.
-  
+  CommMessages.h - Messages sent between a client and a server.
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -21,48 +20,26 @@
 #ifndef COMMMESSAGES_H_
 #define COMMMESSAGES_H_
 
+#include <srnp/Pair.h>
+
 #include <string>
-#include <boost/function.hpp>
 
-namespace srnp
-{
+namespace srnp {
 
-struct SubscriptionORCallback
-{
-	/**
-	 * Key of the Pair on which to register the subscription / callback.
-	 */
-	std::string key;
-
-	/**
-	 * The owner_id for subscription / callback.
-	 */
-	int owner_id;
-
-	/**
-	 * The owner_id of the subscriber.
-	 */
-	int subscriber;
-
-	/**
-	 * To know if we are registering or cancelling.
-	 */
-	bool registering;
-
-	template <typename OutputArchive>
-	void serialize (OutputArchive& o_archive, const int version)
-	{
-		o_archive & owner_id;
-		o_archive & key;
-		o_archive & subscriber;
-		o_archive & registering;
-	}
-
+/// Registers or cancels a subscription. A key of "*" means every pair the owner has.
+struct Subscription {
+  std::string key;
+  /// Whose pair we want. kAnyOwner together with key "*" is the wildcard form.
+  int owner_id = kAnyOwner;
+  /// Who wants it.
+  int subscriber = kAnyOwner;
+  /// False cancels an existing subscription.
+  bool registering = true;
 };
 
-}
+/// The wildcard key, subscribing to everything a component owns.
+inline constexpr std::string_view kWildcardKey = "*";
 
+}  // namespace srnp
 
-
-
-#endif /* INCLUDE_COMMMESSAGES_H_ */
+#endif /* COMMMESSAGES_H_ */

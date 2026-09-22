@@ -1,191 +1,154 @@
+/*
+  meta_pair_callback.cpp - Implementation of the meta-pair helpers.
+
+  Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
+
 #include <srnp/meta_pair_callback.hpp>
+#include <srnp/srnp_print.h>
+
+#include <charconv>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
 
 namespace srnp {
-/**
- * A map to hold the details of registered meta-pairs.
- * The meta-pair might point to a real pair, or might be null.
- * This map connects the {owner, meta-pair} to the content of the pair.
- */
-std::map <PairKey, std::string> all_metas;
+namespace {
 
-/**
- * A map to hold the details of all meta-pair callbacks registered.
- */
-std::map <PairKey, boost::shared_ptr<MetaCallbackInfo> > meta_map;
+/// What one tracked meta-pair currently points at, and the handles that
+/// keep that target subscribed.
+struct MetaTracker {
+  Pair::CallbackFunction fn;
 
-void __registerCallback(std::vector <std::string> values, MetaCallbackInfo* meta_callback_info) {
+  SubscriptionHandle meta_subscription = kInvalidSubscriptionHandle;
+  CallbackHandle meta_callback = kInvalidCallbackHandle;
 
-	if(values.size() != 3) {
-		printf("WARNING: A meta-callback registration was attempted on a pair that was not meta.\n");
-		meta_callback_info->hasACallback = false;
-		return;
-	}
-	else {
-		if(values[0].compare("META") != 0) {
-			printf("WARNING: A meta-callback registration was attempted on a pair that was not meta.\n");
-			meta_callback_info->hasACallback = false;
-			return;
-		}
-		else {
-			//printf("Adding callback to:\nName: %s, Owner: %d...\n", values[2].c_str(), atoi(values[1].c_str()));
-			meta_callback_info->callback_handle = registerCallback(atoi(values[1].c_str()), values[2], meta_callback_info->fn);
-			meta_callback_info->hasACallback = true;
-			return;
-		}
-	}
+  /// The pair the meta-pair names right now, empty when it names nothing.
+  std::optional<PairKey> target;
+  SubscriptionHandle target_subscription = kInvalidSubscriptionHandle;
+  CallbackHandle target_callback = kInvalidCallbackHandle;
+};
+
+/// Callbacks run on io threads, so this guards every tracker.
+std::mutex g_mutex;
+std::map<PairKey, std::shared_ptr<MetaTracker>> g_trackers;
+
+std::optional<PairKey> parseMetaValue(std::string_view value) {
+  const auto parts = extractStrings(value);
+  if (parts.size() != 3 || parts[0] != "META") return std::nullopt;
+
+  int owner = 0;
+  const auto& text = parts[1];
+  if (std::from_chars(text.data(), text.data() + text.size(), owner).ec != std::errc{})
+    return std::nullopt;
+
+  // "(META -1 NULL)" is how a meta-pair says it points nowhere.
+  if (owner == kAnyOwner && parts[2] == "NULL") return std::nullopt;
+  return PairKey{owner, parts[2]};
 }
 
-void __registerSubscription(std::vector <std::string> values, MetaCallbackInfo* meta_callback_info) {
-
-	if(values.size() != 3) {
-		printf("WARNING: A meta-subscription registration was attempted on a pair that was not meta.\n");
-		meta_callback_info->hasASubscription = false;
-		return;
-	}
-	else {
-		if(values[0].compare("META") != 0) {
-			printf("WARNING: A meta-callback subscription was attempted on a pair that was not meta.\n");
-			meta_callback_info->hasASubscription = false;
-			return;
-		}
-		else {
-			//printf("Adding callback to:\nName: %s, Owner: %d...\n", values[2].c_str(), atoi(values[1].c_str()));
-			meta_callback_info->subscriber_handle = registerSubscription(atoi(values[1].c_str()),values[2]);
-			meta_callback_info->hasASubscription = true;
-			return;
-		}
-	}
+/// Drops whatever the tracker currently follows. Call with g_mutex held.
+void releaseTarget(MetaTracker& tracker) {
+  if (tracker.target_callback != kInvalidCallbackHandle) {
+    cancelCallback(tracker.target_callback);
+    tracker.target_callback = kInvalidCallbackHandle;
+  }
+  if (tracker.target_subscription != kInvalidSubscriptionHandle) {
+    cancelSubscription(tracker.target_subscription);
+    tracker.target_subscription = kInvalidSubscriptionHandle;
+  }
+  tracker.target.reset();
 }
 
-void metaCallback(const Pair::ConstPtr& metapair, MetaCallbackInfo* meta_callback_info) {
-	//printf("Saw a meta-pair change.\n");
-
-	//printf("Name: %s\nOwner: %d\n", buffer, metapair->owner);
-
-	PairKey this_one(metapair->getOwner(), metapair->getKey());
-	std::map<PairKey, std::string>::iterator it = all_metas.find(this_one);
-
-	if(it != all_metas.end()) {
-		if(it->second.compare(metapair->getValue()) == 0) {
-			//printf("Callback exists, Not adding anything.\n");
-			return;
-		}
-		else if(metapair->getValue().compare("(META -1 NULL)") == 0) {
-			//printf("Callback deleted.\n");
-
-			if(meta_map.find(this_one) == meta_map.end()) {
-				printf("\n\n!!! Something is terribly wrong !!!\n\n\n");
-			}
-
-			meta_map[this_one]->hasASubscription = false;
-			meta_map[this_one]->hasACallback = false;
-			// Unregister old callback.
-			if(meta_map[this_one]->fn)
-				cancelCallback(meta_map[this_one]->callback_handle);
-			cancelSubscription(meta_map[this_one]->subscriber_handle);
-			all_metas.erase(it);
-			
-			return;
-		}
-		else {
-			all_metas[this_one] = metapair->getValue();
-			//printf("Callback changed!\n");
-
-			// UNREGISTER PREVIOUS.
-			if(meta_map[this_one]->fn)
-				cancelCallback(meta_map[this_one]->callback_handle);
-			cancelSubscription(meta_map[this_one]->subscriber_handle);
-
-			// REGISTER NEW.
-			if(meta_map[this_one]->fn)
-				__registerCallback(extractStrings(metapair->getValue().c_str()), meta_callback_info);
-			__registerSubscription(extractStrings(metapair->getValue().c_str()), meta_callback_info);
-		}
-	}
-
-	else {
-
-		if(std::string(metapair->getValue()).compare("(META -1 NULL)") == 0) {
-			//printf("Nothing to do. NULL link callback.\n");
-			return;
-		}
-
-		all_metas[this_one] = metapair->getValue();
-		//printf("Callback added!\n");
-
-		// REGISTER NEW.
-		if(meta_map[this_one]->fn)
-			__registerCallback(extractStrings(metapair->getValue().c_str()), meta_callback_info);
-		__registerSubscription(extractStrings(metapair->getValue().c_str()), meta_callback_info);
-	}
+/// Points the tracker at a new pair. Call with g_mutex held.
+void acquireTarget(MetaTracker& tracker, const PairKey& target) {
+  tracker.target = target;
+  tracker.target_subscription = registerSubscription(target.owner, target.key);
+  if (tracker.fn)
+    tracker.target_callback = registerCallback(target.owner, target.key, tracker.fn);
 }
 
-void registerMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key, const Pair::CallbackFunction& cb) {
+/// Runs whenever a tracked meta-pair changes value.
+void onMetaPairChanged(const Pair::ConstPtr& metapair) {
+  const PairKey meta_key{metapair->getOwner(), metapair->getKey()};
 
-	PairKey this_pair_key(meta_owner_id, meta_pair_key);
-	
-	if(meta_map.find(this_pair_key) != meta_map.end()) {
-		//printf("\nA meta-subscription to %s already exists. Nothing doing...\n", meta_pair_key);
-		meta_map[this_pair_key]->fn = cb;
-		return;
-	}
+  std::lock_guard lock(g_mutex);
+  const auto it = g_trackers.find(meta_key);
+  if (it == g_trackers.end()) return;  // Cancelled while this was in flight.
 
-	meta_map[this_pair_key] = boost::shared_ptr<MetaCallbackInfo> (new MetaCallbackInfo (cb));
+  MetaTracker& tracker = *it->second;
+  const auto target = parseMetaValue(metapair->getValue());
 
-	meta_map[this_pair_key]->meta_subscriber_handle = registerSubscription(meta_owner_id, meta_pair_key);
-	meta_map[this_pair_key]->meta_callback_handle = registerCallback(meta_owner_id, meta_pair_key, boost::bind(metaCallback, _1, meta_map[this_pair_key].get()));
-	//printf("Callback registerd... But may not happen till the meta is linked... \n");
+  if (target == tracker.target) return;  // Points where it already pointed.
+
+  releaseTarget(tracker);
+  if (target) acquireTarget(tracker, *target);
 }
 
-void registerMetaSubscription(const int& meta_owner_id, const std::string& meta_pair_key) {
+void registerTracker(int meta_owner_id, std::string_view meta_pair_key,
+                     Pair::CallbackFunction cb) {
+  const PairKey meta_key{meta_owner_id, std::string(meta_pair_key)};
 
-	PairKey this_pair_key(meta_owner_id, meta_pair_key);
-	
-	if(meta_map.find(this_pair_key) != meta_map.end()) {
-		//printf("\nA meta-subscription to %s already exists. Nothing doing...\n", meta_pair_key);
-		return;
-	}
+  std::lock_guard lock(g_mutex);
+  if (const auto it = g_trackers.find(meta_key); it != g_trackers.end()) {
+    // Already tracking it; just take the new callback.
+    it->second->fn = std::move(cb);
+    return;
+  }
 
-	meta_map[this_pair_key] = boost::shared_ptr<MetaCallbackInfo> (new MetaCallbackInfo (NULL));
+  auto tracker = std::make_shared<MetaTracker>();
+  tracker->fn = std::move(cb);
+  tracker->meta_subscription = registerSubscription(meta_owner_id, meta_pair_key);
+  tracker->meta_callback = registerCallback(meta_owner_id, meta_pair_key, onMetaPairChanged);
 
-	meta_map[this_pair_key]->meta_subscriber_handle = registerSubscription(meta_owner_id, meta_pair_key);
-	meta_map[this_pair_key]->meta_callback_handle = registerCallback(meta_owner_id, meta_pair_key, boost::bind(metaCallback, _1, meta_map[this_pair_key].get()));
-	//printf("Callback registerd... But may not happen till the meta is linked... \n");
+  g_trackers.emplace(meta_key, std::move(tracker));
 }
 
-void cancelMetaCallback(const int& meta_owner_id, const std::string& meta_pair_key) {
- 
-	PairKey this_pair_key(meta_owner_id, meta_pair_key);	
-	std::map <PairKey, boost::shared_ptr<MetaCallbackInfo> >::iterator it = meta_map.find(this_pair_key);	
+}  // namespace
 
-	if(it != meta_map.end()) {
-		//printf("\nA meta-subscription to %s exists. Deleting...\n", meta_pair_key);
-		if(meta_map[this_pair_key]->hasACallback) {
-			//printf("\nA meta-callback to %s also exists. Deleting...\n", meta_pair_key);
-		    cancelCallback(meta_map[this_pair_key]->callback_handle);
-			if(all_metas.find(this_pair_key) != all_metas.end())
-				all_metas.erase(all_metas.find(this_pair_key));
-			else
-				printf("!!!TERRIBLE ERROR!!!\n");
-        }
-
-		if(meta_map[this_pair_key]->hasASubscription) {
-			cancelSubscription(meta_map[this_pair_key]->subscriber_handle);
-		}
-		//printf("Deleted callback\n");
-		cancelSubscription(meta_map[this_pair_key]->meta_subscriber_handle);
-	    cancelCallback(meta_map[this_pair_key]->meta_callback_handle);
-		meta_map.erase(it);
-        //printf("DELETED!\n");
-		return;
-	}
-	else {
-		//printf("No subscription exists.\n");
-	}
+void registerMetaCallback(int meta_owner_id, std::string_view meta_pair_key,
+                          Pair::CallbackFunction cb) {
+  registerTracker(meta_owner_id, meta_pair_key, std::move(cb));
 }
 
-void cancelMetaSubscription(const int& meta_owner_id, const std::string& meta_pair_key) {
-	cancelMetaCallback(meta_owner_id, meta_pair_key);
+void registerMetaSubscription(int meta_owner_id, std::string_view meta_pair_key) {
+  registerTracker(meta_owner_id, meta_pair_key, nullptr);
 }
 
+void cancelMetaCallback(int meta_owner_id, std::string_view meta_pair_key) {
+  const PairKey meta_key{meta_owner_id, std::string(meta_pair_key)};
+
+  std::lock_guard lock(g_mutex);
+  const auto it = g_trackers.find(meta_key);
+  if (it == g_trackers.end()) {
+    SRNP_DEBUG("nothing tracking the meta-pair [{}] {}", meta_owner_id, meta_pair_key);
+    return;
+  }
+
+  MetaTracker& tracker = *it->second;
+  releaseTarget(tracker);
+  cancelSubscription(tracker.meta_subscription);
+  cancelCallback(tracker.meta_callback);
+
+  g_trackers.erase(it);
 }
+
+void cancelMetaSubscription(int meta_owner_id, std::string_view meta_pair_key) {
+  cancelMetaCallback(meta_owner_id, meta_pair_key);
+}
+
+}  // namespace srnp

@@ -1,44 +1,31 @@
-#include <iostream>
-#include <boost/asio.hpp>
+// Publishes under a fixed key so another component can subscribe to it.
 
 #include <srnp/srnp_kernel.h>
+#include <srnp/srnp_print.h>
 
-void callback_function(const srnp::Pair::ConstPtr& p)
-{
-	SRNP_PRINT_DEBUG << "In callback!";
-	SRNP_PRINT_DEBUG << "Tuple: " << *p;
-}
+#include <chrono>
+#include <cstdio>
+#include <thread>
 
-int main(int argn, char* args[], char* env[])
-{
-	srnp::srnp_print_setup("debug");
+int main(int argc, char* argv[]) {
+  srnp::srnp_print_setup("debug");
 
-	srnp::initialize(argn, args, env);
-	sleep(1);
+  try {
+    srnp::initialize(argc, argv);
+  } catch (const srnp::InitError& e) {
+    std::fprintf(stderr, "could not start: %s\n", e.what());
+    return 1;
+  }
 
-	printf("\nGo!\n");
+  (void)srnp::initMetaPair(srnp::getOwnerID(), "simple");
+  (void)srnp::setMetaPair(srnp::getOwnerID(), "simple", srnp::getOwnerID(), "value");
 
-	
-	srnp::registerSubscription (1, "simple");
-    srnp::registerSubscription (2, "simple");
+  for (int i = 0; i < 20; ++i) {
+    (void)srnp::setPair("value", std::to_string(i * i));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
 
-	/*
-	CallbackForTuple callback_object;
-	*/
-	srnp::CallbackHandle cb1 = srnp::registerCallback(1, "simple", boost::bind(callback_function, _1));
-	srnp::CallbackHandle cb2 = srnp::registerCallback(2, "simple", boost::bind(callback_function, _1));
-	
-
-	srnp::setPair("simple.phooler", "test6___simple2");
-
-	sleep(1);
-	srnp::printPairSpace();
-
-	int i = 20;
-	while(i--)
-		usleep(500000);
-
-	srnp::shutdown();
-
-	return 0;
+  srnp::printPairSpace();
+  srnp::shutdown();
+  return 0;
 }

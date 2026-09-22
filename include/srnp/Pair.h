@@ -1,6 +1,6 @@
 /*
   Pair.h - Defines the basic type used in SRNP - Pair.
-  
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -20,212 +20,127 @@
 #ifndef PAIR_H_
 #define PAIR_H_
 
+#include <chrono>
+#include <cstdint>
+#include <format>
+#include <functional>
+#include <iosfwd>
+#include <map>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
-#include <utility>
 
-#include <boost/shared_ptr.hpp>
+namespace srnp {
 
-#include <boost/serialization/utility.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/string.hpp>
+using CallbackHandle = std::uint64_t;
+using SubscriptionHandle = std::uint64_t;
 
-#include <boost/thread/mutex.hpp>
-#include <boost/function.hpp>
-#include <boost/date_time.hpp>
-#include <boost/date_time/posix_time/time_serialize.hpp>
+/// Returned when a registration fails. Never a valid handle.
+inline constexpr CallbackHandle kInvalidCallbackHandle = 0;
+inline constexpr SubscriptionHandle kInvalidSubscriptionHandle = 0;
 
-namespace srnp
-{
+using Clock = std::chrono::system_clock;
+using TimePoint = Clock::time_point;
 
-typedef double CallbackHandle;
-typedef int SubscriptionHandle; 
+/// Stands in for "any owner" in a wildcard subscription.
+inline constexpr int kAnyOwner = -1;
 
-/**
- * A Class that derives from PairBase.
- */
-class Pair
-{
-public:
-	enum PairType {
-		INVALID = -1,
-		STRING = 0,
-		BYTES,
-		META
-	};
-	
-protected:
-	/**
-	 * The pair object.
-	 */
-	std::pair <std::string, std::string> pair_;
+class Pair {
+ public:
+  enum class Type : std::uint8_t { Invalid = 0, String, Bytes, Meta };
 
-	/**
-	 * The owner id for this pair.
-	 */
-	int owner_;
+  using Ptr = std::shared_ptr<Pair>;
+  using ConstPtr = std::shared_ptr<const Pair>;
+  using CallbackFunction = std::function<void(const ConstPtr&)>;
 
-	PairType pair_type_;
+  Pair() = default;
 
-	/**
-	 * Write time of this Pair.
-	 */
-	boost::posix_time::ptime write_time_;
+  Pair(int owner, std::string key, std::string value, Type type = Type::String)
+      : pair_(std::move(key), std::move(value)), owner_(owner), pair_type_(type) {}
 
-	/**
-	 * Expiry time.
-	 */
-	boost::posix_time::ptime expiry_time_;
+  /**
+   * Owner ids subscribed to this pair. Every update is forwarded to each of them.
+   */
+  std::vector<int> subscribers_;
 
-public:
+  /**
+   * Callbacks to run locally when this pair changes, keyed by handle.
+   */
+  std::map<CallbackHandle, CallbackFunction> callbacks_;
 
-	typedef boost::shared_ptr <Pair> Ptr;
+  void setPair(std::string key, std::string value) {
+    pair_.first = std::move(key);
+    pair_.second = std::move(value);
+  }
 
-	typedef boost::shared_ptr <const Pair> ConstPtr;
+  void setValue(std::string value) { pair_.second = std::move(value); }
+  void setType(Type type) { pair_type_ = type; }
+  void setOwner(int owner) { owner_ = owner; }
+  void setWriteTime(TimePoint write_time) { write_time_ = write_time; }
+  void setExpiryTime(TimePoint expiry_time) { expiry_time_ = expiry_time; }
 
-	typedef boost::function <void(const Pair::ConstPtr&)> CallbackFunction;
+  int getOwner() const { return owner_; }
+  const std::string& getKey() const { return pair_.first; }
+  const std::string& getValue() const { return pair_.second; }
+  Type getType() const { return pair_type_; }
+  const std::pair<std::string, std::string>& getPair() const { return pair_; }
+  TimePoint getWriteTime() const { return write_time_; }
+  TimePoint getExpiryTime() const { return expiry_time_; }
 
-	/**
-	 * A list of owner ids subscribed to this pair.
-	 */
-	std::vector <int> subscribers_;
-
-	/**
-	 * A callback.
-	 * There can be many.
-	 */
-	std::map <CallbackHandle, CallbackFunction> callbacks_;
-
-	/**
-	 * A Mutex.
-	 */
-	boost::mutex callback_mutex; 
-
-	Pair (const int& owner, const std::string& key, const std::string& value, const PairType& type = STRING) :
-		pair_(std::pair <std::string, std::string> (key, value)),
-		owner_ (owner),
-		pair_type_ (type)
-	{
-	}
-
-	inline Pair(const Pair& pair) :
-				pair_ (pair.pair_),
-				owner_ (pair.owner_),
-				write_time_ (pair.write_time_),
-				expiry_time_ (pair.expiry_time_),
-				subscribers_ (pair.subscribers_),
-				callbacks_ (pair.callbacks_),
-				pair_type_ (pair.pair_type_)
-	{
-        
-
-    }
-
-	inline Pair& operator = (const Pair& pair)
-	{
-        pair_ = pair.pair_;
-        owner_ = pair.owner_;
-        write_time_ = pair.write_time_;
-        expiry_time_ = pair.expiry_time_;
-		subscribers_ = pair.subscribers_;
-		callbacks_ = pair.callbacks_;
-		pair_type_ = pair.pair_type_;
-        return *this;
-
-    }
-
-	Pair(): owner_ (-1)
-	{
-
-	}
-
-	/**
-	 * Set Key and Value.
-	 */
-	inline void setPair(const std::string& key, const std::string& value) { pair_.first = key; pair_.second = value; }
-
-	/**
-	 * Set the value of the pair.
-	 */
-	inline void setValue(const std::string& value) { pair_.second = value; }
-
-	/** 
-	 * Set the type of a pair to STRING, BYTE OR META.
-	 *
-	 * @param type 
-	 */
-	inline void setType(const PairType& type) { pair_type_ = type; }
-
-	/**
-	 * Set the owner of the pair.
-	 */
-	inline void setOwner(const int& owner) { owner_ = owner; }
-
-	/**
-	 * Set write time.
-	 */
-	inline void setWriteTime(const boost::posix_time::ptime& write_time) { write_time_ = write_time; }
-
-	/**
-	 * Set expiry time.
-	 */
-	inline void setExpiryTime(const boost::posix_time::ptime& expiry_time) { expiry_time_ = expiry_time; }
-
-	/**
-	 * Get the owner for the pair.
-	 */
-	inline int getOwner() const { return owner_; }
-
-	/**
-	 * Get the key.
-	 */
-	inline std::string getKey() const { return pair_.first; }
-
-	/**
-	 * Get the value.
-	 */
-	inline std::string getValue() const { return pair_.second; }
-
-	/**
-	 * Get the type.
-	 */
-	inline PairType getType() const { return pair_type_; }
-
-	/**
-	 * Get a copy of the pair.
-	 */
-	inline std::pair <std::string, std::string> getPair () const { return pair_; }
-
-	/**
-	 * Get write time.
-	 */
-	inline boost::posix_time::ptime getWriteTime() const { return write_time_; }
-
-	/**
-	 * Get expiry time.
-	 */
-	inline boost::posix_time::ptime getExpiryTime() const { return expiry_time_; }
-
-	/**
-	 * The serialization function.
-	 */
-	template <typename OutputArchive>
-	inline void serialize (OutputArchive& o_archive, const int version)
-	{
-		o_archive & owner_;
-		o_archive & pair_;
-		o_archive & write_time_;
-		o_archive & expiry_time_;
-		o_archive & pair_type_;
-	}
-
+ private:
+  std::pair<std::string, std::string> pair_;
+  int owner_ = kAnyOwner;
+  Pair::Type pair_type_ = Type::Invalid;
+  TimePoint write_time_{};
+  TimePoint expiry_time_{};
 };
 
-typedef boost::shared_ptr <Pair> PairPtr;
+using PairPtr = Pair::Ptr;
 
-/**
- * Provide support for cout.
- */
+/// Identifies a pair anywhere in the system.
+struct PairKey {
+  int owner = kAnyOwner;
+  std::string key;
+
+  auto operator<=>(const PairKey&) const = default;
+};
+
+/// A PairKey that borrows its string, for lookups that shouldn't allocate.
+struct PairKeyView {
+  int owner = kAnyOwner;
+  std::string_view key;
+};
+
+/// Lets a map keyed by PairKey be searched with a PairKeyView.
+struct PairKeyLess {
+  using is_transparent = void;
+
+  static auto asView(const PairKey& k) { return PairKeyView{k.owner, k.key}; }
+  static auto asView(const PairKeyView& k) { return k; }
+
+  template <class A, class B>
+  bool operator()(const A& a, const B& b) const {
+    const auto left = asView(a);
+    const auto right = asView(b);
+    if (left.owner != right.owner) return left.owner < right.owner;
+    return left.key < right.key;
+  }
+};
+
 std::ostream& operator<<(std::ostream& s, const Pair& pair);
-}
+
+/// The same text a Pair streams out, as a string.
+std::string toString(const Pair& pair);
+
+}  // namespace srnp
+
+/// Lets a Pair be passed straight to the logging macros.
+template <>
+struct std::formatter<srnp::Pair> : std::formatter<std::string> {
+  auto format(const srnp::Pair& pair, std::format_context& context) const {
+    return std::formatter<std::string>::format(srnp::toString(pair), context);
+  }
+};
+
 #endif /* PAIR_H_ */

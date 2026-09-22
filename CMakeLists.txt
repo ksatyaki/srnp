@@ -1,16 +1,11 @@
-cmake_minimum_required (VERSION 3.0 FATAL_ERROR)
-set(CMP0048 new)
-project (srnp VERSION 0.1.0 LANGUAGES CXX)
+cmake_minimum_required (VERSION 3.16)
+project (srnp VERSION 0.2.0 LANGUAGES CXX)
 
-find_package (Boost
-  COMPONENTS
-  thread
-  system
-  serialization
-  date_time
-  log
-  log_setup
-)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+find_package (Boost REQUIRED COMPONENTS system)
 
 set(CMAKE_MODULE_PATH
     "${CMAKE_MODULE_PATH}"
@@ -20,53 +15,57 @@ include(GNUInstallDirs)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")
 
+add_library(srnp_warnings INTERFACE)
+target_compile_options(srnp_warnings INTERFACE -Wall -Wextra)
 
-if(Boost_LOG_FOUND)
-  add_definitions(-DWITH_BOOST_LOG)
-  ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
-  message("Boost log found. We will now build SRNP_PRINT to use boost log.")
-else(Boost_LOG_FOUND)
-  message("Boost.Log not found. SRNP_PRINT messages are simply std::couts. ")
+# Sanitizers are how the threading and lifetime work gets verified.
+# Use -DSRNP_SANITIZE=address,undefined or -DSRNP_SANITIZE=thread.
+set(SRNP_SANITIZE "" CACHE STRING "Sanitizers to build with (e.g. address,undefined or thread)")
+if(SRNP_SANITIZE)
+  message(STATUS "Building with sanitizers: ${SRNP_SANITIZE}")
+  target_compile_options(srnp_warnings INTERFACE
+    -fsanitize=${SRNP_SANITIZE} -fno-omit-frame-pointer -g)
+  target_link_options(srnp_warnings INTERFACE -fsanitize=${SRNP_SANITIZE})
 endif()
-
-# BOOST PYTHON
-include_directories(/usr/include/python2.7)
-
-# Project Stuff
-include_directories (include ${Boost_INCLUDE_DIRS})
 
 add_library (srnp SHARED
   src/Pair.cpp
   src/PairSpace.cpp
+  src/codec.cpp
+  src/wire.cpp
+  src/session.cpp
+  src/master_hub.cpp
   src/srnp_print.cpp
   src/server.cpp
   src/client.cpp
   src/srnp_kernel.cpp
   src/meta_pair_callback.cpp)
-target_link_libraries (srnp ${Boost_LIBRARIES})
+
+target_include_directories(srnp PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries (srnp PUBLIC Boost::system PRIVATE srnp_warnings)
+set_target_properties(srnp PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION 0)
 
 # Master
-add_executable (srnp-master src/master_hub.cpp)
-target_link_libraries (srnp-master srnp ${Boost_LIBRARIES})
+add_executable (srnp-master src/master_main.cpp)
+target_link_libraries (srnp-master PRIVATE srnp srnp_warnings)
 
-# Python Wrapper
-# add_library (srnpy SHARED src/srnp_python.cpp)
-# target_link_libraries (srnpy srnp_kernel ${Boost_LIBRARIES})
-
-# set_target_properties(srnpy PROPERTIES PREFIX "")
-
-# Test
+# Demos
 add_executable (simple src/single_tests/simple.cpp)
-target_link_libraries (simple srnp)
+target_link_libraries (simple PRIVATE srnp srnp_warnings)
 
 add_executable (simple_callback src/single_tests/simple_callback.cpp)
-target_link_libraries (simple_callback srnp)
+target_link_libraries (simple_callback PRIVATE srnp srnp_warnings)
 
 add_executable (simple2 src/single_tests/simple2.cpp)
-target_link_libraries (simple2 srnp)
+target_link_libraries (simple2 PRIVATE srnp srnp_warnings)
 
 add_executable (testGetTupleIndirectly src/single_tests/testGetTupleIndirectly.cc)
-target_link_libraries (testGetTupleIndirectly srnp)
+target_link_libraries (testGetTupleIndirectly PRIVATE srnp srnp_warnings)
+
+enable_testing()
+add_subdirectory(tests)
 
 install (DIRECTORY include/srnp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT srnp)
 install (TARGETS srnp DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT srnp)
@@ -90,18 +89,11 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/srnpConfig.cmake
     COMPONENT srnp)
 
 ########### Add uninstall target ###############
-CONFIGURE_FILE(
+configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
   "${CMAKE_CURRENT_BINARY_DIR}/cmake/cmake_uninstall.cmake"
   IMMEDIATE @ONLY)
-ADD_CUSTOM_TARGET(uninstall
-  "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/cmake/cmake_uninstall.cmake") 
-
+add_custom_target(uninstall
+  "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/cmake/cmake_uninstall.cmake")
 
 include(CPackSettings)
-### ROS ###
-if (EXISTS "package.xml")
-  # install catkin package.xml
-  MESSAGE("Installing package.xml")
-  install(FILES package.xml DESTINATION "share/srnp")
-endif()

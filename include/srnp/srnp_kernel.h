@@ -1,7 +1,7 @@
 /*
   srnp_kernel.h
   A Wrapper for all the SRNP tools.
-  
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -23,121 +23,76 @@
 
 #include <srnp/client.h>
 #include <srnp/server.h>
-#include <map>
 
-namespace srnp
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 
-{
+namespace srnp {
 
-	class KernelInstance
-	{
-	private:
+/// Thrown by initialize() when the node cannot start.
+struct InitError : std::runtime_error {
+  using std::runtime_error::runtime_error;
+};
 
-	public:
-		static boost::shared_ptr <Server> server_instance_;
-		static boost::shared_ptr <Client> client_instance_;
-		static boost::shared_ptr <PairQueue> pair_queue_;
-		static boost::shared_ptr <PairSpace> pair_space_;
-		static boost::shared_ptr <boost::asio::io_service> io_service_;
+/// The one node this process runs. Everything below operates on it.
+class KernelInstance {
+ public:
+  static std::shared_ptr<Server> server_instance_;
+  static std::shared_ptr<Client> client_instance_;
+  static std::shared_ptr<PairQueue> pair_queue_;
+  static std::shared_ptr<PairSpace> pair_space_;
+  static std::shared_ptr<asio::io_context> io_context_;
+};
 
-		static bool ok;
-	
-	};
+/**
+ * Starts the node. Reads SRNP_MASTER_IP and SRNP_MASTER_PORT from the
+ * environment, and accepts "--owner-id <n>" to ask for a specific id.
+ * Throws InitError instead of exiting, so a caller can recover.
+ */
+void initialize(int argc, char* argv[]);
 
-//	std::map <float, SrnpCallback> callbacks_map;
+/// Same, for a caller that would rather pass the master's address directly.
+void initialize(std::string_view master_ip, std::string_view master_port,
+                int desired_owner_id = kAnyOwner, std::string_view node_name = "srnp");
 
-    /**
-     * Set a pair in your pair-space.
-     */
-	bool setPair (const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+/// Stops the node and releases everything. Safe to call more than once.
+void shutdown();
 
-	bool setRemotePair (const int& owner, const std::string& key, const std::string& value, const Pair::PairType& type = Pair::STRING);
+/// True between a successful initialize() and shutdown().
+bool ok();
 
-	bool setMetaPair (const int& meta_owner, const std::string& meta_key, const int& owner, const std::string& key);
+bool setPair(std::string_view key, std::string_view value,
+             Pair::Type type = Pair::Type::String);
+bool setRemotePair(int owner, std::string_view key, std::string_view value,
+                   Pair::Type type = Pair::Type::String);
+bool setPairIndirectly(int metaowner, std::string_view metakey, std::string_view value);
 
-	bool initMetaPair (const int& meta_owner, const std::string& meta_key);
+bool setMetaPair(int meta_owner, std::string_view meta_key, int owner, std::string_view key);
+bool initMetaPair(int meta_owner, std::string_view meta_key);
 
-	Pair::ConstPtr getPair(const int& owner, const std::string& key);
+std::optional<Pair> getPair(int owner, std::string_view key);
+std::optional<Pair> getPairIndirectly(int metaowner, std::string_view metakey);
 
-	Pair::ConstPtr getPairIndirectly(const int& metaowner, const std::string& metakey);
+void printPairSpace();
 
-    bool setPairIndirectly(const int& metaowner, const std::string& metakey, const std::string& value);
+CallbackHandle registerCallback(int owner, std::string_view key,
+                                Pair::CallbackFunction callback_fn);
+void cancelCallback(CallbackHandle handle);
 
-    /**
-     * A function to initialize SRNP from python.
-     */
-	void initialize_py (const std::string& ip, const std::string& port);
+/// Subscribes to one component's pair, or with kAnyOwner to that key
+/// wherever it appears.
+SubscriptionHandle registerSubscription(int owner, std::string_view key);
+SubscriptionHandle registerSubscription(std::string_view key);
 
-    /**
-     * Initialize the 'kernel'.
-     */
-	void initialize (int argn, char* args[], char* env[]);
+void cancelSubscription(SubscriptionHandle handle);
+void cancelSubscription(int owner, std::string_view key);
+void cancelSubscription(std::string_view key);
 
-    /**
-     * Shutdown the 'kernel'.
-     */
-	void shutdown();
+int getOwnerID();
 
-    /**
-     * Print Pairspace.
-     */
-	void printPairSpace();
-
-    /**
-     * Register a callback on a tuple.
-     */
-	CallbackHandle registerCallback(const int& owner, const std::string& key, const Pair::CallbackFunction& callback_fn);
-
-    /**
-     * Cancel callback.
-     */
-	void cancelCallback(const CallbackHandle& cbid);
-
-    /**
-     * Register a Subscription.
-	 * @param key The key of the tuple.
-	 * @return The SubscriptionHandle corresponding to this subscription.
-     */
-	SubscriptionHandle registerSubscription(const std::string& key);
-
-    /**
-     * Cancel Subscription.
-     */
-	void cancelSubscription(const std::string& key);
-
-	/** 
-	 * Use a Subscription Handle to delete a subscription; 
-	 * @param handle The SubscriptionHandle corresponding to the subscription we wish to cancel.
-	 */
-	void cancelSubscription(const SubscriptionHandle& handle);
-
-	/** 
-	 * Cancel a subscription on a particular <owner, key>. 
-	 * @param owner The owner-id.
-	 * @param key The key.
-	 */
-	void cancelSubscription(const int& owner, const std::string& key);
-
-	/** 
-	 * Register a subscription on a particular <owner, key>. 
-	 * @param owner The owner-id.
-	 * @param key The key.
-	 * @return The SubscriptionHandle for this subscription.
-	 */
-	SubscriptionHandle registerSubscription(const int& owner, const std::string& key);
-
-    /**
-     * Get owner Id.
-     */
-	int getOwnerID();
-
-	/** 
-	 * Test if the kernel is running.
-	 * @return True if it is, false otherwise.
-	 */
-	bool ok();
-
-
-}
+}  // namespace srnp
 
 #endif /* SRNP_KERNEL_H_ */

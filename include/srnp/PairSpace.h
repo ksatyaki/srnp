@@ -1,6 +1,6 @@
 /*
   PairSpace.h - The space of all pairs.
-  
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -19,110 +19,76 @@
 #ifndef PAIRSPACE_H_
 #define PAIRSPACE_H_
 
-#include <string>
-#include <map>
-
 #include <srnp/Pair.h>
-#include <boost/thread/mutex.hpp>
-#include <boost/shared_ptr.hpp>
-#include <srnp/srnp_print.h>
 
-namespace srnp
-{
+#include <map>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
 
-class PairSpace
-{
-	std::vector <Pair> pairs_;
+namespace srnp {
 
-	/**
-	 * Every subscriber in this list is added to every new pair.
-	 */
-	std::vector <int> u_subscribers_;
+/**
+ * Holds every pair this component knows about, its own and the ones it
+ * subscribed to. Callers must hold `mutex` for the whole of any operation.
+ */
+class PairSpace {
+ public:
+  /// Runs for every pair that changes, on top of any per-pair callbacks.
+  Pair::CallbackFunction u_callback_;
 
-	std::map <CallbackHandle, std::pair<int, std::string> > cbid_to_key_;
+  /// Guards everything below. Public because callers often need to hold it
+  /// across several calls, for example a lookup followed by an update.
+  std::mutex mutex;
 
-	CallbackHandle cbid_new_;
+  using Storage = std::map<PairKey, Pair, PairKeyLess>;
 
-public:
+  /// Null when there is no such pair. Valid only while the lock is held.
+  Pair* find(int owner, std::string_view key);
+  const Pair* find(int owner, std::string_view key) const;
 
-	Pair::CallbackFunction u_callback_;
+  /// A detached copy, safe to use after releasing the lock.
+  std::optional<Pair> copyOf(int owner, std::string_view key) const;
 
-	std::pair<int, std::string> getOwnerAndKeyFromCBID(double cbid);
-	
-	boost::mutex mutex;
-	
-	PairSpace();
+  void removePair(int owner, std::string_view key);
 
-	bool isEnd(const std::vector <Pair>::iterator& iter_to_check);
+  const Storage& getAllPairs() const { return pairs_; }
 
-	/**
-	 * Remove a pair from the space using its key.
-	 */
-	void removePair(const int& owner, const std::string& key);
+  /**
+   * Adds the pair, or updates the value and type of an existing one.
+   * An update deliberately keeps the existing subscribers and callbacks:
+   * they belong to this component, not to whoever sent the new value.
+   */
+  Pair& addPair(const Pair& pair);
 
-	/**
-	 * Remove a pair from the space using its iterator.
-	 */
-	inline void removePair(const std::vector <Pair>::iterator& iter)
-	{
-		if(iter != pairs_.end())
-			pairs_.erase(iter);
-	}
+  /// Creates a placeholder pair if the key isn't published yet, so the
+  /// subscription is already in place when the first value arrives.
+  void addSubscription(int owner, std::string_view key, int subscriber);
+  void removeSubscription(int owner, std::string_view key, int subscriber);
 
-	inline const std::vector <Pair>& getAllPairs() { return pairs_; }
-	
-	/**
-	 * Get the pair iterator with the key. Used only in local pair space.
-	 */
-	std::vector <Pair>::iterator getPairIteratorWithOwnerAndKey(const int& owner, const std::string& key);
-	
-	/**
-	 * Add a pair or update a pair in the pair-space.
-	 */
-	void addPair(const Pair& pair);
+  /// Subscribes to every pair we hold now and every one added later.
+  void addSubscriptionToAll(int subscriber);
+  void removeSubscriptionToAll(int subscriber);
 
-	/**
-	 * Add subscription. If there is no such tuple, a new tuple is added and a subscription is added on that.
-	 */
-	void addSubscription(const int& my_owner, const std::string& key, const int& subscriber);
+  CallbackHandle addCallback(int owner, std::string_view key, Pair::CallbackFunction callback_fn);
+  void removeCallback(CallbackHandle handle);
+  void addCallbackToAll(Pair::CallbackFunction callback_fn);
 
-	/**
-	 * Add Subscription to all.
-	 */
-	void addSubscriptionToAll(const int& subscriber);
+  void printPairSpace() const;
 
-	/**
-	 * Remove Subscription to all.
-	 */
-	void removeSubscriptionToAll(const int& subscriber);
+ private:
+  Storage pairs_;
 
-	/**
-	 * Remove subscription.
-	 */
-	void removeSubscription(const int& my_owner, const std::string& key, const int& subscriber);
+  /// Added to every new pair, so late arrivals inherit wildcard subscriptions.
+  std::vector<int> u_subscribers_;
 
-	/**
-	 * Remove callback.
-	 */
-	void removeCallback(const CallbackHandle& cbid);
+  /// Lets removeCallback find the pair a handle was registered against.
+  std::map<CallbackHandle, PairKey> callback_owners_;
 
-	/**
-	 * Add a callback.
-	 */
-	CallbackHandle addCallback(const int& owner, const std::string& key, Pair::CallbackFunction callback_fn);
-
-	void addCallbackToAll(Pair::CallbackFunction callback_fn);
-
-	/**
-	 * Print the entire pair-space.
-	 */
-	void printPairSpace();
-
-	//inline void mutexLock() { mutex_.lock(); }
-
-	//inline void mutexUnlock() { mutex_.unlock(); }
+  CallbackHandle next_callback_handle_ = kInvalidCallbackHandle;
 };
 
-} /* namespace srnp */
+}  // namespace srnp
 
 #endif /* PAIRSPACE_H_ */

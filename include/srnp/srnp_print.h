@@ -1,6 +1,6 @@
 /*
-  srnp_print.h - Many options for logging.
-  
+  srnp_print.h - Logging.
+
   Copyright (C) 2015  Chittaranjan Srinivas Swaminathan
 
   This program is free software: you can redistribute it and/or modify
@@ -20,47 +20,53 @@
 #ifndef SRNP_PRINT_H
 #define SRNP_PRINT_H
 
-#ifdef WITH_BOOST_LOG
+#include <format>
+#include <source_location>
+#include <string>
+#include <string_view>
 
-#include <boost/log/trivial.hpp>
-#include <boost/log/expressions.hpp>
-#include <boost/log/utility/setup/console.hpp>
-#include <boost/log/core.hpp>
-#include <boost/log/attributes.hpp>
-#include <boost/log/utility/setup/common_attributes.hpp>
-#include <boost/log/support/date_time.hpp>
+namespace srnp {
 
-#define SRNP_PRINT_TRACE BOOST_LOG_TRIVIAL(trace)
-#define SRNP_PRINT_INFO BOOST_LOG_TRIVIAL(info)
-#define SRNP_PRINT_DEBUG BOOST_LOG_TRIVIAL(debug)
-#define SRNP_PRINT_WARNING BOOST_LOG_TRIVIAL(warning)
-#define SRNP_PRINT_ERROR BOOST_LOG_TRIVIAL(error)
-#define SRNP_PRINT_FATAL BOOST_LOG_TRIVIAL(fatal)
+enum class LogLevel { Trace, Debug, Info, Warning, Error, Fatal, Off };
 
-#else
+/**
+ * Set the minimum level that gets printed. Accepts the level names above,
+ * in any case. An unknown name leaves the level unchanged and returns false.
+ */
+bool srnp_print_setup(std::string_view level);
 
-#include <iostream>
+LogLevel logLevel();
 
-#define SRNP_PRINT_TRACE std::cout << std::endl << "(TRACE): "
-#define SRNP_PRINT_INFO std::cout << std::endl << "(INFO): "
-#define SRNP_PRINT_DEBUG std::cout << std::endl << "(DEBUG): "
-#define SRNP_PRINT_WARNING std::cout << std::endl << "(WARNING): "
-#define SRNP_PRINT_ERROR std::cout << std::endl << "(ERROR): "
-#define SRNP_PRINT_FATAL std::cout << std::endl << "(FATAL): "
+/**
+ * Print one already-formatted line. Messages below the current level are
+ * dropped. Warnings and worse carry the source location.
+ */
+void logLine(LogLevel level, std::string_view message, const std::source_location& where);
 
-
-#endif
-
-namespace srnp
-{
-
-#ifdef WITH_BOOST_LOG
-BOOST_LOG_ATTRIBUTE_KEYWORD(severity, "Severity", boost::log::trivial::severity_level)
-BOOST_LOG_ATTRIBUTE_KEYWORD(timestamp, "TimeStamp", boost::posix_time::ptime)
-#endif
-
-void srnp_print_setup(const std::string& str_level = "");
-
+/**
+ * Formats and prints, but only if the level passes. Taking the format
+ * arguments lazily keeps disabled log statements close to free.
+ */
+template <class... Args>
+void logAt(LogLevel level, const std::source_location& where,
+           std::format_string<Args...> fmt, Args&&... args) {
+  if (level < logLevel()) return;
+  logLine(level, std::format(fmt, std::forward<Args>(args)...), where);
 }
 
-#endif // SRNP_PRINT_H //
+}  // namespace srnp
+
+#define SRNP_TRACE(...) \
+  ::srnp::logAt(::srnp::LogLevel::Trace, std::source_location::current(), __VA_ARGS__)
+#define SRNP_DEBUG(...) \
+  ::srnp::logAt(::srnp::LogLevel::Debug, std::source_location::current(), __VA_ARGS__)
+#define SRNP_INFO(...) \
+  ::srnp::logAt(::srnp::LogLevel::Info, std::source_location::current(), __VA_ARGS__)
+#define SRNP_WARN(...) \
+  ::srnp::logAt(::srnp::LogLevel::Warning, std::source_location::current(), __VA_ARGS__)
+#define SRNP_ERROR(...) \
+  ::srnp::logAt(::srnp::LogLevel::Error, std::source_location::current(), __VA_ARGS__)
+#define SRNP_FATAL(...) \
+  ::srnp::logAt(::srnp::LogLevel::Fatal, std::source_location::current(), __VA_ARGS__)
+
+#endif  // SRNP_PRINT_H
