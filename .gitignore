@@ -4,3 +4,9 @@ Todo*
 # Build directories
 build/
 build-*/
+
+# The built documentation site
+site/
+
+# Python bytecode
+__pycache__/

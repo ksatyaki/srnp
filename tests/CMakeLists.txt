@@ -23,3 +23,12 @@ target_compile_definitions(srnp_integration_tests PRIVATE
   SRNP_MASTER_BINARY="$<TARGET_FILE:srnp-master>")
 add_test(NAME srnp_integration_tests COMMAND srnp_integration_tests)
 set_tests_properties(srnp_integration_tests PROPERTIES TIMEOUT 120)
+
+# The API reference is hand-written, so this is what stops it drifting.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_FOUND)
+  add_test(NAME srnp_api_reference
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_api_reference.py)
+else()
+  message(STATUS "python3 not found; skipping the API reference check")
+endif()

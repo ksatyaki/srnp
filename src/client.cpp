@@ -175,6 +175,7 @@ asio::awaitable<void> ClientSession::readLoop() {
         case wire::MessageType::UpdateComponents: handleUpdateComponents(frame); break;
         case wire::MessageType::PairUpdate:
         case wire::MessageType::PairUpdateOne: handlePairUpdate(frame); break;
+        case wire::MessageType::PairRemoved: handlePairRemoved(frame); break;
         default:
           throw wire::DecodeError("a client cannot handle this message type");
       }
@@ -215,6 +216,17 @@ void ClientSession::handlePairUpdate(const Frame& frame) {
                        ? frame.header.subscriber
                        : kAnyOwner;
   forwardPairUpdate(*pair, only);
+}
+
+void ClientSession::handlePairRemoved(const Frame& frame) {
+  // Our server names one subscriber per frame, so this only has to relay it.
+  const auto message = decodePayload<RemovePairRequest>(frame.bytes());
+  const int subscriber = frame.header.subscriber;
+
+  if (auto session = client_.sessionFor(subscriber))
+    session->send(wire::frameOf(wire::MessageType::PairRemoved, message));
+  else
+    SRNP_WARN("subscriber {} is not connected", subscriber);
 }
 
 void ClientSession::forwardPairUpdate(const Pair& pair, int only_subscriber) {
@@ -332,6 +344,7 @@ void Client::addSession(const ComponentInfo& component) {
     std::lock_guard lock(state_mutex_);
     // A component reusing an owner id replaces the stale session.
     sessions_.insert_or_assign(component.owner, session);
+    components_.insert_or_assign(component.owner, component);
   }
   asio::co_spawn(session->strand(), session->run(), asio::detached);
 }
@@ -344,8 +357,14 @@ void Client::removeSession(int owner) {
       session = it->second;
       sessions_.erase(it);
     }
+    components_.erase(owner);
   }
   if (session) session->close();
+}
+
+std::map<int, ComponentInfo> Client::components() const {
+  std::lock_guard lock(state_mutex_);
+  return components_;
 }
 
 ClientSessionPtr Client::sessionFor(int owner) const {
@@ -396,9 +415,37 @@ bool Client::setRemotePair(int owner, std::string_view key, std::string_view val
   return true;
 }
 
+bool Client::removePair(std::string_view key) {
+  if (!my_server_session_) return false;
+
+  const RemovePairRequest request{ownerId(), std::string(key)};
+  my_server_session_->send(wire::frameOf(wire::MessageType::RemovePair, request));
+  return true;
+}
+
+bool Client::removeRemotePair(int owner, std::string_view key) {
+  if (owner == ownerId()) return removePair(key);
+
+  auto session = sessionFor(owner);
+  if (!session) {
+    SRNP_WARN("cannot remove a pair on {}: not connected", owner);
+    return false;
+  }
+
+  const RemovePairRequest request{owner, std::string(key)};
+  session->send(wire::frameOf(wire::MessageType::RemovePair, request));
+  return true;
+}
+
 std::optional<Pair> Client::getPair(int owner, std::string_view key) {
   std::lock_guard lock(pair_space_.mutex);
-  return pair_space_.copyOf(owner, key);
+  const auto pair = pair_space_.copyOf(owner, key);
+
+  // A Type::Invalid entry is a placeholder holding a subscription or a
+  // callback for a key that has no value: either never published, or
+  // removed. Either way there is nothing to hand back.
+  if (pair && pair->getType() == Pair::Type::Invalid) return std::nullopt;
+  return pair;
 }
 
 std::optional<Pair> Client::getPairIndirectly(int metaowner, std::string_view metakey) {

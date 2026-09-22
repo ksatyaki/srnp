@@ -1,0 +1,53 @@
+site_name: srnp
+site_description: A blackboard middleware for components that share key/value pairs.
+# Replaced once the site is deployed. See the README.
+site_url: https://SRNP_DOCS_URL_PLACEHOLDER
+repo_url: https://github.com/ksatyaki/srnp
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  # Mermaid fences, so diagrams render here and on GitHub with no build step.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Using srnp:
+      - user/index.md
+      - Quickstart: user/quickstart.md
+      - Concepts: user/concepts.md
+      - Building: user/building.md
+      - Running: user/running.md
+      - API reference: user/api-reference.md
+      - Changelog: user/changelog.md
+  - Developing srnp:
+      - dev/index.md
+      - Architecture: dev/architecture.md
+      - Threading: dev/threading.md
+      - Protocol: dev/protocol.md
+      - Internals: dev/internals.md
+      - Testing: dev/testing.md

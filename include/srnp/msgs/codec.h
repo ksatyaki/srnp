@@ -37,6 +37,9 @@ void decode(wire::Reader& reader, Pair& pair);
 void encode(wire::Writer& writer, const Subscription& message);
 void decode(wire::Reader& reader, Subscription& message);
 
+void encode(wire::Writer& writer, const RemovePairRequest& message);
+void decode(wire::Reader& reader, RemovePairRequest& message);
+
 void encode(wire::Writer& writer, const IndicatePresence& message);
 void decode(wire::Reader& reader, IndicatePresence& message);
 

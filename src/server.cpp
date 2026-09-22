@@ -64,6 +64,8 @@ void ServerSession::handle(const Frame& frame) {
     case wire::MessageType::PairUpdate:
     case wire::MessageType::PairUpdateOne: handlePairUpdate(frame); break;
     case wire::MessageType::Subscription: handleSubscription(frame); break;
+    case wire::MessageType::RemovePair: handleRemovePair(frame); break;
+    case wire::MessageType::PairRemoved: handlePairRemoved(frame); break;
     case wire::MessageType::AttachClient: server_.attachClient(shared_from_this()); break;
     default:
       throw wire::DecodeError("a server cannot handle this message type");
@@ -154,6 +156,48 @@ void ServerSession::handleSubscription(const Frame& frame) {
   }
 
   for (const auto& pair : to_send) sendPairUpdate(pair, message.subscriber);
+}
+
+void ServerSession::handleRemovePair(const Frame& frame) {
+  const auto message = decodePayload<RemovePairRequest>(frame.bytes());
+  if (message.owner != server_.owner()) {
+    SRNP_WARN("ignoring a removal meant for {}", message.owner);
+    return;
+  }
+
+  // The subscribers have to be read before the pair goes, since the removal
+  // is what takes the list away.
+  std::vector<int> subscribers;
+  {
+    std::lock_guard lock(server_.pairSpace().mutex);
+    const Pair* pair = server_.pairSpace().find(message.owner, message.key);
+    if (pair == nullptr) {
+      SRNP_WARN("cannot remove [{}] {}: no such pair", message.owner, message.key);
+      return;
+    }
+    subscribers = pair->subscribers_;
+    server_.pairSpace().removePair(message.owner, message.key);
+  }
+
+  if (subscribers.empty()) return;
+
+  auto client_session = server_.myClientSession();
+  if (!client_session) {
+    SRNP_WARN("cannot announce a removal: our client is not connected");
+    return;
+  }
+
+  // One frame per subscriber, addressed the way PairUpdateOne is, so our
+  // client knows where to send each without needing the list itself.
+  for (const int subscriber : subscribers)
+    client_session->send(wire::frameOf(wire::MessageType::PairRemoved, message, subscriber));
+}
+
+void ServerSession::handlePairRemoved(const Frame& frame) {
+  // The owner dropped a pair we subscribed to, so drop our copy too.
+  const auto message = decodePayload<RemovePairRequest>(frame.bytes());
+  std::lock_guard lock(server_.pairSpace().mutex);
+  server_.pairSpace().removePair(message.owner, message.key);
 }
 
 void ServerSession::sendPairUpdate(const Pair& pair, int subscriber) {

@@ -64,6 +64,39 @@ TEST(PairSpace, RemovePair) {
   space.removePair(1, "key");
 }
 
+TEST(PairSpace, RemovePairKeepsSubscribersAndCallbacks) {
+  PairSpace space;
+  space.addPair(makePair(1, "key", "value"));
+  space.addSubscription(1, "key", 42);
+  space.addCallback(1, "key", [](const Pair::ConstPtr&) {});
+
+  space.removePair(1, "key");
+
+  // What is left is the placeholder a subscription to an unpublished key
+  // would have created, so re-publishing still reaches subscriber 42.
+  const Pair* placeholder = space.find(1, "key");
+  ASSERT_NE(placeholder, nullptr);
+  EXPECT_EQ(placeholder->getType(), Pair::Type::Invalid);
+  EXPECT_EQ(placeholder->getValue(), "");
+  EXPECT_EQ(placeholder->subscribers_, std::vector<int>{42});
+  EXPECT_EQ(placeholder->callbacks_.size(), 1u);
+
+  space.addPair(makePair(1, "key", "again"));
+  EXPECT_EQ(space.find(1, "key")->subscribers_, std::vector<int>{42});
+}
+
+TEST(PairSpace, RemovePairDropsTheEntryOnceNobodyIsListening) {
+  PairSpace space;
+  space.addPair(makePair(1, "key", "value"));
+  space.addSubscription(1, "key", 42);
+
+  space.removePair(1, "key");
+  space.removeSubscription(1, "key", 42);
+  space.removePair(1, "key");
+
+  EXPECT_EQ(space.find(1, "key"), nullptr);
+}
+
 TEST(PairSpace, SubscriptionBeforeThePairExists) {
   PairSpace space;
   space.addSubscription(7, "later", 42);

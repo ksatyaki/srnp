@@ -24,11 +24,13 @@
 #include <srnp/client.h>
 #include <srnp/server.h>
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace srnp {
 
@@ -70,11 +72,24 @@ bool setRemotePair(int owner, std::string_view key, std::string_view value,
                    Pair::Type type = Pair::Type::String);
 bool setPairIndirectly(int metaowner, std::string_view metakey, std::string_view value);
 
+/// Deletes one of our own pairs, and tells its subscribers it is gone.
+bool removePair(std::string_view key);
+/// Deletes a pair on another component.
+bool removeRemotePair(int owner, std::string_view key);
+
 bool setMetaPair(int meta_owner, std::string_view meta_key, int owner, std::string_view key);
 bool initMetaPair(int meta_owner, std::string_view meta_key);
 
 std::optional<Pair> getPair(int owner, std::string_view key);
 std::optional<Pair> getPairIndirectly(int metaowner, std::string_view metakey);
+
+/// Every pair we hold, copied under the pair-space lock so it stays usable
+/// afterwards. Keys nothing has published yet are left out, and the copies
+/// carry no callbacks.
+std::vector<Pair> snapshotPairs();
+
+/// Every other component the master has told us about, by owner id.
+std::map<int, ComponentInfo> components();
 
 void printPairSpace();
 

@@ -1,0 +1,4 @@
+# What the documentation site is built with. Cloudflare Pages installs from
+# this file, so the versions are pinned rather than floating.
+mkdocs==1.6.1
+mkdocs-material==9.7.6

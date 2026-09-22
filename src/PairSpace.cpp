@@ -58,7 +58,17 @@ Pair& PairSpace::addPair(const Pair& pair) {
 
 void PairSpace::removePair(int owner, std::string_view key) {
   // Heterogeneous erase is C++23, so look the iterator up first.
-  if (const auto it = pairs_.find(PairKeyView{owner, key}); it != pairs_.end()) pairs_.erase(it);
+  const auto it = pairs_.find(PairKeyView{owner, key});
+  if (it == pairs_.end()) return;
+
+  Pair& pair = it->second;
+  if (pair.subscribers_.empty() && pair.callbacks_.empty()) {
+    pairs_.erase(it);
+    return;
+  }
+
+  pair.setValue("");
+  pair.setType(Pair::Type::Invalid);
 }
 
 CallbackHandle PairSpace::addCallback(int owner, std::string_view key,

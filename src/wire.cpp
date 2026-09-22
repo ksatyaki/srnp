@@ -45,7 +45,7 @@ FrameHeader decodeHeader(std::span<const std::byte> bytes) {
 
   FrameHeader header;
   const auto type = reader.integer<std::uint8_t>();
-  if (type == 0 || type > static_cast<std::uint8_t>(MessageType::AttachClient))
+  if (type == 0 || type > static_cast<std::uint8_t>(MessageType::PairRemoved))
     throw DecodeError(std::format("unknown message type {}", type));
   header.type = static_cast<MessageType>(type);
 

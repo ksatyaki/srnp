@@ -78,6 +78,16 @@ void decode(wire::Reader& reader, Subscription& message) {
   message.registering = reader.boolean();
 }
 
+void encode(wire::Writer& writer, const RemovePairRequest& message) {
+  writer.integer<std::int32_t>(message.owner);
+  writer.string(message.key);
+}
+
+void decode(wire::Reader& reader, RemovePairRequest& message) {
+  message.owner = reader.integer<std::int32_t>();
+  message.key = reader.string();
+}
+
 void encode(wire::Writer& writer, const IndicatePresence& message) {
   writer.string(message.port);
   writer.boolean(message.force_owner_id);

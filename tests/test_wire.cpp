@@ -186,3 +186,28 @@ TEST(Wire, AnOutOfRangeEnumIsRejected) {
 
   EXPECT_THROW(decodePayload<Pair>(std::move(writer).take()), wire::DecodeError);
 }
+
+TEST(Wire, RemovePairRequestRoundTrip) {
+  const RemovePairRequest original{77, "some/key"};
+  const auto decoded = roundTrip(original);
+
+  EXPECT_EQ(decoded.owner, original.owner);
+  EXPECT_EQ(decoded.key, original.key);
+}
+
+TEST(Wire, RemovePairRequestWithAnEmptyKey) {
+  EXPECT_EQ(roundTrip(RemovePairRequest{1, ""}).key, "");
+}
+
+TEST(Wire, ATruncatedRemovePairRequestIsRejected) {
+  wire::Writer writer;
+  writer.integer<std::int32_t>(1);  // The owner, with no key behind it.
+  EXPECT_THROW(decodePayload<RemovePairRequest>(std::move(writer).take()), wire::DecodeError);
+}
+
+TEST(Wire, TheNewMessageTypesAreAcceptedInAHeader) {
+  for (const auto type : {wire::MessageType::RemovePair, wire::MessageType::PairRemoved}) {
+    const auto bytes = wire::encodeHeader({type, 0, -1});
+    EXPECT_EQ(wire::decodeHeader(bytes).type, type);
+  }
+}

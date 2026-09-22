@@ -71,6 +71,7 @@ class ClientSession : public std::enable_shared_from_this<ClientSession> {
   void handleMasterMessage(const Frame& frame);
   void handleUpdateComponents(const Frame& frame);
   void handlePairUpdate(const Frame& frame);
+  void handlePairRemoved(const Frame& frame);
 
   /// Pushes a pair to every component subscribed to it, or to just one.
   void forwardPairUpdate(const Pair& pair, int only_subscriber);
@@ -120,6 +121,12 @@ class Client {
   [[nodiscard]] bool setRemotePair(int owner, std::string_view key, std::string_view value,
                                    Pair::Type type = Pair::Type::String);
 
+  /// Deletes one of our own pairs. Subscribers are told it is gone.
+  [[nodiscard]] bool removePair(std::string_view key);
+  /// Deletes a pair on another component. Sending it to ourselves is the
+  /// same as removePair.
+  [[nodiscard]] bool removeRemotePair(int owner, std::string_view key);
+
   /// Follows a meta-pair to the pair it points at, then sets that one.
   [[nodiscard]] bool setPairIndirectly(int metaowner, std::string_view metakey,
                                        std::string_view value);
@@ -145,6 +152,10 @@ class Client {
   void cancelSubscription(SubscriptionHandle handle);
   void cancelSubscription(int owner, std::string_view key);
   void cancelSubscription(std::string_view key);
+
+  /// Every other component the master has told us about, by owner id.
+  /// Ourselves excluded: the master never lists us to ourselves.
+  std::map<int, ComponentInfo> components() const;
 
   void close();
 
@@ -185,6 +196,7 @@ class Client {
 
   mutable std::mutex state_mutex_;
   std::map<int, ClientSessionPtr> sessions_;
+  std::map<int, ComponentInfo> components_;
   /// Every subscription we hold, by handle. Replaces the four maps this
   /// used to keep in parallel.
   std::map<SubscriptionHandle, SubscriptionRecord> subscriptions_;

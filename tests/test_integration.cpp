@@ -366,3 +366,110 @@ TEST_F(Integration, AnUnlinkedMetaPairResolvesToNothing) {
   EXPECT_FALSE(node.client().getPairIndirectly(node.owner(), "pointer").has_value());
   EXPECT_FALSE(node.client().setPairIndirectly(node.owner(), "pointer", "value"));
 }
+
+TEST_F(Integration, ANodeCanDeleteItsOwnPair) {
+  TestNode node(master.port());
+  ASSERT_TRUE(node.waitUntilReady());
+
+  ASSERT_TRUE(node.client().setPair("doomed", "value"));
+  ASSERT_TRUE(waitFor([&] { return node.client().getPair(node.owner(), "doomed").has_value(); }));
+
+  ASSERT_TRUE(node.client().removePair("doomed"));
+  EXPECT_TRUE(waitFor([&] { return !node.client().getPair(node.owner(), "doomed").has_value(); }));
+}
+
+TEST_F(Integration, ASubscriberSeesAPairDisappear) {
+  TestNode publisher(master.port());
+  TestNode subscriber(master.port());
+  ASSERT_TRUE(publisher.waitUntilReady());
+  ASSERT_TRUE(subscriber.waitUntilReady());
+
+  ASSERT_TRUE(waitFor([&] {
+    subscriber.client().registerSubscription(publisher.owner(), "shared");
+    (void)publisher.client().setPair("shared", "here");
+    return subscriber.client().getPair(publisher.owner(), "shared").has_value();
+  }));
+
+  ASSERT_TRUE(publisher.client().removePair("shared"));
+  EXPECT_TRUE(waitFor([&] {
+    return !subscriber.client().getPair(publisher.owner(), "shared").has_value();
+  }));
+}
+
+TEST_F(Integration, ARePublishAfterADeleteStillReachesTheSubscriber) {
+  TestNode publisher(master.port());
+  TestNode subscriber(master.port());
+  ASSERT_TRUE(publisher.waitUntilReady());
+  ASSERT_TRUE(subscriber.waitUntilReady());
+
+  ASSERT_TRUE(waitFor([&] {
+    subscriber.client().registerSubscription(publisher.owner(), "recycled");
+    (void)publisher.client().setPair("recycled", "first");
+    return subscriber.client().getPair(publisher.owner(), "recycled").has_value();
+  }));
+
+  ASSERT_TRUE(publisher.client().removePair("recycled"));
+  ASSERT_TRUE(waitFor([&] {
+    return !subscriber.client().getPair(publisher.owner(), "recycled").has_value();
+  }));
+
+  // The subscription outlived the deletion, so no re-subscribe is needed.
+  ASSERT_TRUE(publisher.client().setPair("recycled", "second"));
+  EXPECT_TRUE(waitFor([&] {
+    const auto pair = subscriber.client().getPair(publisher.owner(), "recycled");
+    return pair && pair->getValue() == "second";
+  }));
+}
+
+TEST_F(Integration, DeletingARemotePairDropsItOnTheOwner) {
+  TestNode owner(master.port());
+  TestNode remover(master.port());
+  ASSERT_TRUE(owner.waitUntilReady());
+  ASSERT_TRUE(remover.waitUntilReady());
+
+  ASSERT_TRUE(owner.client().setPair("theirs", "value"));
+  ASSERT_TRUE(waitFor([&] { return remover.client().removeRemotePair(owner.owner(), "theirs"); }));
+
+  EXPECT_TRUE(waitFor([&] { return !owner.client().getPair(owner.owner(), "theirs").has_value(); }));
+}
+
+TEST_F(Integration, DeletingAPairThatIsNotThereIsHarmless) {
+  TestNode node(master.port());
+  ASSERT_TRUE(node.waitUntilReady());
+
+  ASSERT_TRUE(node.client().removePair("never/set"));
+
+  // The node has to stay usable afterwards.
+  ASSERT_TRUE(node.client().setPair("still", "working"));
+  EXPECT_TRUE(waitFor([&] { return node.client().getPair(node.owner(), "still").has_value(); }));
+}
+
+TEST_F(Integration, ComponentsFollowNodesJoiningAndLeaving) {
+  TestNode node(master.port());
+  ASSERT_TRUE(node.waitUntilReady());
+  EXPECT_TRUE(node.client().components().empty());
+
+  int other_owner = srnp::kAnyOwner;
+  {
+    TestNode other(master.port());
+    ASSERT_TRUE(other.waitUntilReady());
+    other_owner = other.owner();
+
+    ASSERT_TRUE(waitFor([&] { return node.client().components().contains(other_owner); }));
+    const auto info = node.client().components().at(other_owner);
+    EXPECT_EQ(info.owner, other_owner);
+    EXPECT_FALSE(info.port.empty());
+  }
+
+  EXPECT_TRUE(waitFor([&] { return !node.client().components().contains(other_owner); }));
+}
+
+TEST_F(Integration, AKeyWithOnlyACallbackOnItReadsAsAbsent) {
+  TestNode node(master.port());
+  ASSERT_TRUE(node.waitUntilReady());
+
+  // Registering leaves a placeholder in the pair space. It is bookkeeping,
+  // not a pair, so it must not read back as one.
+  node.client().registerCallback(node.owner(), "watched", [](const Pair::ConstPtr&) {});
+  EXPECT_FALSE(node.client().getPair(node.owner(), "watched").has_value());
+}

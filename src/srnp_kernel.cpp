@@ -136,6 +136,12 @@ bool initMetaPair(int meta_owner, std::string_view meta_key) {
   return client().initMetaPair(meta_owner, meta_key);
 }
 
+bool removePair(std::string_view key) { return client().removePair(key); }
+
+bool removeRemotePair(int owner, std::string_view key) {
+  return client().removeRemotePair(owner, key);
+}
+
 std::optional<Pair> getPair(int owner, std::string_view key) {
   return client().getPair(owner, key);
 }
@@ -144,7 +150,27 @@ std::optional<Pair> getPairIndirectly(int metaowner, std::string_view metakey) {
   return client().getPairIndirectly(metaowner, metakey);
 }
 
-void printPairSpace() { KernelInstance::server_instance_->printPairSpace(); }
+std::vector<Pair> snapshotPairs() {
+  client();  // Same check as everything else: there has to be a live node.
+
+  std::vector<Pair> pairs;
+  std::lock_guard lock(KernelInstance::pair_space_->mutex);
+  for (const auto& [key, pair] : KernelInstance::pair_space_->getAllPairs()) {
+    // Type::Invalid means a placeholder: subscribed or watched, but never
+    // published, so there is no value to show.
+    if (pair.getType() == Pair::Type::Invalid) continue;
+    pairs.push_back(pair);
+    pairs.back().callbacks_.clear();
+  }
+  return pairs;
+}
+
+std::map<int, ComponentInfo> components() { return client().components(); }
+
+void printPairSpace() {
+  client();  // Same check as everything else: there has to be a live node.
+  KernelInstance::server_instance_->printPairSpace();
+}
 
 CallbackHandle registerCallback(int owner, std::string_view key,
                                 Pair::CallbackFunction callback_fn) {

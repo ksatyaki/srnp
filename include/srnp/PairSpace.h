@@ -51,6 +51,12 @@ class PairSpace {
   /// A detached copy, safe to use after releasing the lock.
   std::optional<Pair> copyOf(int owner, std::string_view key) const;
 
+  /**
+   * Deletes the pair. Subscribers and callbacks are ours, not the value's,
+   * so anything still registered leaves the entry behind as the same
+   * Invalid placeholder addSubscription() creates for a key nobody has
+   * published yet. Re-publishing the key then reaches them again.
+   */
   void removePair(int owner, std::string_view key);
 
   const Storage& getAllPairs() const { return pairs_; }

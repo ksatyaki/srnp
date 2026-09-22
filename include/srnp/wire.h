@@ -70,6 +70,10 @@ enum class MessageType : std::uint8_t {
   /// Sent by our own client so the server can tell it apart from the
   /// clients of other components, which also connect to us.
   AttachClient,
+  /// Asks the owning component's server to delete one of its pairs.
+  RemovePair,
+  /// The owner telling a subscriber that a pair is gone.
+  PairRemoved,
 };
 
 struct FrameHeader {

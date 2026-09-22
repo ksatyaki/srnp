@@ -68,6 +68,8 @@ class ServerSession : public std::enable_shared_from_this<ServerSession> {
   void handleIncomingPair(const Frame& frame);
   void handlePairUpdate(const Frame& frame);
   void handleSubscription(const Frame& frame);
+  void handleRemovePair(const Frame& frame);
+  void handlePairRemoved(const Frame& frame);
 
   /// Applies the pair, then runs the callbacks outside the lock so a slow
   /// user callback can't block the rest of the pair space.

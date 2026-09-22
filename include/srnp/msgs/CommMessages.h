@@ -37,6 +37,12 @@ struct Subscription {
   bool registering = true;
 };
 
+/// Names the pair to delete. Sent to the owner, then on to its subscribers.
+struct RemovePairRequest {
+  int owner = kAnyOwner;
+  std::string key;
+};
+
 /// The wildcard key, subscribing to everything a component owns.
 inline constexpr std::string_view kWildcardKey = "*";
 
