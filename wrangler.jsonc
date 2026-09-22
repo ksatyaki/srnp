@@ -1,0 +1,16 @@
+{
+  // Serves the MkDocs output as a static-asset Worker. There is no script:
+  // a Worker with only an "assets" block needs no code behind it.
+  //
+  // "name" must match the Worker already created in the dashboard, or
+  // `wrangler deploy` makes a second one alongside it.
+  "name": "srnp-docs",
+  "compatibility_date": "2026-09-22",
+  "assets": {
+    // Built by `mkdocs build`, which the Workers build command runs first.
+    // Not in git: see .gitignore.
+    "directory": "./site",
+    // MkDocs Material emits a 404.html; serve it for unknown paths.
+    "not_found_handling": "404-page"
+  }
+}
