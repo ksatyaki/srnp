@@ -13,7 +13,8 @@ concepts, not the code.
 
 **[Using srnp](user/index.md)** — build it, run the master, write a component,
 and the reference for every public function. Start at the
-[quickstart](user/quickstart.md).
+[quickstart](user/quickstart.md), or at [PairView](user/pairview.md) to watch a
+running system.
 
 **[Developing srnp](dev/index.md)** — how the library is put together: the
 threading rules, the byte-level protocol, and what each source file does. Read

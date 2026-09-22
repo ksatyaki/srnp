@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **[PairView](pairview.md)**, a window onto the pair space, built on Dear ImGui
+  and replacing the old Qt viewer. It shows every pair grouped by owner, and
+  posts, deletes and subscribes. Built by default when GLFW and the vendored
+  Dear ImGui submodule are present, and skipped with a status line when they are
+  not.
 - Pairs can be deleted. `removePair(key)` drops one of your own and tells its
   subscribers; `removeRemotePair(owner, key)` drops one on another component.
   Subscriptions survive a deletion, so re-publishing the key reaches the same

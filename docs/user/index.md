@@ -9,6 +9,7 @@ to other components' pairs, and runs callbacks when those change.
   meta-pairs, and what the master does.
 - **[Building](building.md)** — dependencies, cmake, install.
 - **[Running](running.md)** — the master, the environment variables, logging.
+- **[PairView](pairview.md)** — the window onto the pair space.
 - **[API reference](api-reference.md)** — every public function, grouped by task.
 - **[Changelog](changelog.md)** — what changed between releases.
 

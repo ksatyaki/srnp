@@ -50,12 +50,19 @@ owner id, and throws if that never arrives.
 
 Anything else on the command line is left alone.
 
+## PairView
+
+`pairview` opens a window onto the pair space: every pair grouped by owner, with
+controls to post, delete and subscribe. It reads the same two environment
+variables, and also takes `--master-ip` and `--master-port`. See
+[PairView](pairview.md).
+
 ## Environment variables
 
 | Variable | Read by | Meaning |
 |:---------|:--------|:--------|
-| `SRNP_MASTER_IP` | components | The master's address. Required. |
-| `SRNP_MASTER_PORT` | components, master | The master's port. Required for components. |
+| `SRNP_MASTER_IP` | components, `pairview` | The master's address. Required, except that `pairview` falls back to `127.0.0.1`. |
+| `SRNP_MASTER_PORT` | components, master, `pairview` | The master's port. Required for components; `pairview` falls back to `12321`. |
 | `SRNP_LOG_LEVEL` | `srnp-master` | How much the master prints. |
 
 `SRNP_LOG_LEVEL` is only read by the master executable. A component sets its own

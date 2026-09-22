@@ -15,7 +15,7 @@ GoogleTest is found if installed, and fetched at configure time if not.
 
 | Test | Covers |
 |:-----|:-------|
-| `srnp_unit_tests` | the pair space, the wire codec, meta-value parsing, the API-reference check |
+| `srnp_unit_tests` | the pair space, the wire codec, meta-value parsing, the GUI's formatting |
 | `srnp_integration_tests` | a real master and real nodes over loopback |
 
 ### Unit tests
@@ -31,6 +31,9 @@ an out-of-range enum. The decoder is the only code in srnp that reads bytes from
 an untrusted source, so it gets the most hostile tests.
 
 `test_meta_parsing.cpp` covers `extractStrings` and the meta-value format.
+
+`test_gui_format.cpp` covers `gui/format`, which has no ImGui in it, so these run
+whether or not the GUI was built. See [The GUI](gui.md#what-the-tests-cover).
 
 ### Integration tests
 
@@ -93,6 +96,10 @@ who suspects drift knows where to look.
 `.github/workflows/ci.yml` builds and tests three ways on every push: plain,
 `address,undefined`, and `thread`. `fail-fast` is off, so one configuration
 failing does not hide the others.
+
+PairView is built in the plain job only. A GL driver under the thread sanitizer
+reports races that have nothing to do with srnp, so the sanitizer jobs configure
+with `-DSRNP_BUILD_GUI=OFF` and do not install GLFW.
 
 There is no documentation job. `mkdocs build --strict` is worth running by hand
 before touching the docs — it is what catches a broken internal link:

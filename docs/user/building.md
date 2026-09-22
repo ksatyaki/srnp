@@ -8,27 +8,33 @@
 | Boost (headers and `Boost::system`) | Asio, for all the networking. |
 | CMake 3.16 or newer | The build. |
 | GoogleTest | Tests only, and downloaded automatically if not installed. |
+| GLFW and OpenGL | [PairView](pairview.md) only. Without them it is skipped, not an error. |
+| Dear ImGui | PairView only, vendored as a submodule in `external/imgui`. |
 
 On Debian or Ubuntu:
 
 ```bash
-sudo apt-get install cmake g++ libboost-dev libboost-system-dev libgtest-dev
+sudo apt-get install cmake g++ libboost-dev libboost-system-dev libgtest-dev \
+                     libglfw3-dev libgl1-mesa-dev
 ```
 
 On Fedora:
 
 ```bash
-sudo dnf install cmake gcc-c++ boost-devel gtest-devel
+sudo dnf install cmake gcc-c++ boost-devel gtest-devel glfw-devel mesa-libGL-devel
 ```
 
 ## Build
 
+Dear ImGui is a submodule, so fetch it before configuring if you want PairView:
+
 ```bash
+git submodule update --init
 cmake -S . -B build
 cmake --build build -j
 ```
 
-That leaves `srnp-master` and the demo programs in `build/bin`, and
+That leaves `srnp-master`, `pairview` and the demo programs in `build/bin`, and
 `libsrnp.so` in `build/lib`.
 
 ## Install
@@ -68,3 +74,4 @@ g++ -std=c++20 -I include my_component.cpp -L build/lib -lsrnp -o my_component
 |:-------|:--------|:-------------|
 | `CMAKE_BUILD_TYPE` | empty | Set to `Debug` or `Release` as usual. |
 | `SRNP_SANITIZE` | empty | Builds with sanitizers, e.g. `-DSRNP_SANITIZE=address,undefined` or `-DSRNP_SANITIZE=thread`. See [Testing](../dev/testing.md). |
+| `SRNP_BUILD_GUI` | `ON` | Builds [PairView](pairview.md). Skipped anyway when GLFW or the submodule is missing. |

@@ -64,6 +64,22 @@ target_link_libraries (simple2 PRIVATE srnp srnp_warnings)
 add_executable (testGetTupleIndirectly src/single_tests/testGetTupleIndirectly.cc)
 target_link_libraries (testGetTupleIndirectly PRIVATE srnp srnp_warnings)
 
+# PairView. Skipped rather than fatal when its dependencies are missing, so a
+# library-only build still configures on a machine with no GLFW or submodule.
+option(SRNP_BUILD_GUI "Build the PairView GUI" ON)
+if(SRNP_BUILD_GUI)
+  find_package(glfw3 QUIET)
+  find_package(OpenGL QUIET)
+  if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/imgui.cpp)
+    message(STATUS "PairView: skipped, external/imgui is empty "
+                   "(git submodule update --init)")
+  elseif(NOT glfw3_FOUND OR NOT OpenGL_FOUND)
+    message(STATUS "PairView: skipped, GLFW or OpenGL was not found")
+  else()
+    add_subdirectory(gui)
+  endif()
+endif()
+
 enable_testing()
 add_subdirectory(tests)
 

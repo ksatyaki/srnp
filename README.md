@@ -42,6 +42,11 @@ Start the master, then point components at it:
     export SRNP_MASTER_PORT=12321
     ./build/bin/simple2
 
+`./build/bin/pairview` opens a window onto the pair space — see
+[`docs/user/pairview.md`](docs/user/pairview.md). It needs the Dear ImGui
+submodule (`git submodule update --init`) and GLFW; without them cmake skips it
+and builds the library as usual.
+
 ## Tests
 
     ctest --test-dir build --output-on-failure

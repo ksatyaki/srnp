@@ -12,6 +12,7 @@ is what you want.
   flow.
 - **[Internals](internals.md)** — the classes, and the surprising parts.
 - **[Testing](testing.md)** — ctest, sanitizers, and what is and is not covered.
+- **[The GUI](gui.md)** — how PairView is put together, and how to add a panel.
 
 Each page names the source files it describes at the top. If you suspect a page
 has gone stale, those files are the authority.

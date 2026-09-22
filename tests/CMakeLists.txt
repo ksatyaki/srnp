@@ -12,7 +12,10 @@ endif()
 add_executable(srnp_unit_tests
   test_pair_space.cpp
   test_wire.cpp
-  test_meta_parsing.cpp)
+  test_meta_parsing.cpp
+  # No ImGui in gui/format, so these run whether or not the GUI is built.
+  test_gui_format.cpp
+  ${CMAKE_SOURCE_DIR}/gui/format.cpp)
 target_link_libraries(srnp_unit_tests PRIVATE srnp srnp_warnings GTest::gtest_main)
 add_test(NAME srnp_unit_tests COMMAND srnp_unit_tests)
 

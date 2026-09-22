@@ -42,6 +42,7 @@ nav:
       - Concepts: user/concepts.md
       - Building: user/building.md
       - Running: user/running.md
+      - PairView: user/pairview.md
       - API reference: user/api-reference.md
       - Changelog: user/changelog.md
   - Developing srnp:
@@ -51,3 +52,4 @@ nav:
       - Protocol: dev/protocol.md
       - Internals: dev/internals.md
       - Testing: dev/testing.md
+      - The GUI: dev/gui.md

@@ -14,12 +14,22 @@ jobs:
         sanitize: ["", "address,undefined", "thread"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake g++ libboost-dev libboost-system-dev libgtest-dev
+      - name: Install the GUI's dependencies
+        if: matrix.sanitize == ''
+        run: sudo apt-get install -y libglfw3-dev libgl1-mesa-dev
+      # The GUI is built in the plain job only: a GL driver under TSan reports
+      # races that have nothing to do with srnp.
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DSRNP_SANITIZE=${{ matrix.sanitize }}
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DSRNP_SANITIZE=${{ matrix.sanitize }} \
+            -DSRNP_BUILD_GUI=${{ matrix.sanitize == '' && 'ON' || 'OFF' }}
       - name: Build
         run: cmake --build build -j
       - name: Test
