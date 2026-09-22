@@ -10,10 +10,9 @@ carries no pairs: components talk to each other directly.
 
 ## Documentation
 
-https://SRNP_DOCS_URL_PLACEHOLDER
+https://srnp.chitt.se
 
-Until that is deployed, the same pages are in `docs/` — start at
-[`docs/index.md`](docs/index.md).
+The same pages are in `docs/` — start at [`docs/index.md`](docs/index.md).
 
 ## Dependencies
 
@@ -50,6 +49,17 @@ and builds the library as usual.
 ## Tests
 
     ctest --test-dir build --output-on-failure
+
+## Benchmarks
+
+Latency and throughput against mosquitto, zeromq and a raw TCP floor:
+
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSRNP_BENCHMARKS=ON
+    cmake --build build
+    ./build/bin/run_bench.sh
+
+See [`benchmarks/README.md`](benchmarks/README.md) for what is measured, and
+[`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for numbers from this machine.
 
 ## Licence
 

@@ -5,6 +5,17 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Without this a plain `cmake -S . -B build` compiles at -O0, which is around
+# four times slower through the transport than an optimised build. Anyone
+# measuring the default build would be measuring the wrong thing. A build type
+# given on the command line still wins, and CI sets Debug explicitly.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+               Debug Release RelWithDebInfo MinSizeRel)
+  message(STATUS "No build type given; defaulting to ${CMAKE_BUILD_TYPE}")
+endif()
+
 find_package (Boost REQUIRED COMPONENTS system)
 
 set(CMAKE_MODULE_PATH
@@ -82,6 +93,13 @@ endif()
 
 enable_testing()
 add_subdirectory(tests)
+
+# Latency and throughput against mosquitto, zeromq and a raw TCP floor.
+# See benchmarks/README.md. Off by default: a normal build never pays for it.
+option(SRNP_BENCHMARKS "Build the comparison benchmarks" OFF)
+if(SRNP_BENCHMARKS)
+  add_subdirectory(benchmarks)
+endif()
 
 install (DIRECTORY include/srnp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT srnp)
 install (TARGETS srnp DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT srnp)
